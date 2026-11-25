@@ -4,6 +4,7 @@ __pycache__/
 data/snapshots/
 data/updater.log
 data/latest_measurements.json
+data/timeseries_archive.json.gz
 *.mkv
 *.mp4
 *.webm

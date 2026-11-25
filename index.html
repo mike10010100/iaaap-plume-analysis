@@ -19,6 +19,7 @@
     <nav class="nav-links">
       <a href="#model-3d">3D Model</a>
       <a href="#live-explorer">Live Telemetry</a>
+      <a href="#history-24h">24h History</a>
       <a href="#map-2d">2D Heatmap</a>
       <a href="#figures">Figures (1–6)</a>
       <a href="#findings">Findings &amp; Capability</a>
@@ -63,9 +64,9 @@
           <div class="kpi-sub" id="kpi-wind-sub">SW–WSW transport away from Burlington &amp; Middletown</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-hdr"><div class="kpi-label">Sensor Network</div><span class="tag-live">● Auto-Synced</span></div>
+          <div class="kpi-hdr"><div class="kpi-label">Sensor Network</div><span class="tag-live">● 24h Archived</span></div>
           <div class="kpi-val" id="kpi-net-val">43 EPA · 10 ASOS · 5 RWIS</div>
-          <div class="kpi-sub">Local systemd daemon (10m) + live CORS refresh</div>
+          <div class="kpi-sub" id="kpi-net-sub">Local systemd daemon (10m) · 24h+ multi-detector time series</div>
         </div>
       </div>
     </section>
@@ -136,8 +137,16 @@
         <aside class="hud-controls">
           <h4>3D Layers &amp; Optics</h4>
           <div class="ctrl-group">
-            <div class="ctrl-subhdr proj">◆ Modeled Projection Layers</div>
-            <div class="ctrl-row"><label><input id="chk-particles" type="checkbox" checked /> Projected 3D Plume (2,400 pts)</label></div>
+            <div class="ctrl-subhdr proj">◆ Plume Advection &amp; Projection</div>
+            <div class="ctrl-row">
+              <span>Plume Winds</span>
+              <select id="sel-plume-mode" class="ctrl-select">
+                <option value="assimilated" selected>Live-Assimilated</option>
+                <option value="forecast">Initial 15Z Forecast</option>
+              </select>
+            </div>
+            <div id="lbl-assim-note" style="font-size:0.67rem;color:#7dd3fc;margin:2px 0 6px;line-height:1.35">Assimilating live ASOS + RWIS winds...</div>
+            <div class="ctrl-row"><label><input id="chk-particles" type="checkbox" checked /> 3D Plume Cloud (2,400 pts)</label></div>
             <div class="ctrl-row">
               <span>Ground Heatmap</span>
               <select id="sel-drape" class="ctrl-select">
@@ -157,9 +166,9 @@
             <div class="ctrl-row"><label><input id="chk-lids" type="checkbox" checked /> PBL &amp; 1,075 m Inversion Cap</label></div>
           </div>
           <div class="ctrl-group">
-            <div class="ctrl-subhdr live">● Live Observed / Calibrated</div>
+            <div class="ctrl-subhdr live">● Live Observed / Time-Synced</div>
             <div class="ctrl-row"><label><input id="chk-sensors" type="checkbox" checked /> Live EPA Xact + 43 Monitors</label></div>
-            <div class="ctrl-row"><label><input id="chk-winds" type="checkbox" checked /> Live ASOS &amp; RWIS Wind Arrows</label></div>
+            <div class="ctrl-row"><label><input id="chk-winds" type="checkbox" checked /> Time-Synced ASOS/RWIS Arrows</label></div>
             <div class="ctrl-row"><label><input id="chk-sightlines" type="checkbox" checked /> Video Sightlines &amp; Stereo Zone</label></div>
             <div class="ctrl-row"><label><input id="chk-labels" type="checkbox" checked /> 3D Community Labels</label></div>
           </div>
@@ -226,9 +235,9 @@
         <div class="prov-card proj">
           <h4><span class="tag-proj">◆ Modeled Projection</span> Simulated Atmospheric Dispersion</h4>
           <ul>
-            <li><strong>3D Particle Cloud (2,400 trajectories):</strong> Simulated Lagrangian advection/diffusion across coarse dust, PM10, and PM2.5 size regimes—<em>not</em> a radar image of actual airborne lead mass.</li>
+            <li><strong>Live-Assimilated vs. Forecast Plume (2,400 pts):</strong> In default <em>Live-Assimilated</em> mode, particle advection up to the latest real-world wind observation is driven by inverse-distance-weighted <strong>observed ASOS + RWIS winds</strong> (reanalysis), smoothly transitioning to Open-Meteo forecast winds beyond. Switch to <em>Initial 15Z Forecast Only</em> to compare how observed wind shifts moved the plume.</li>
             <li><strong>Ground Heatmaps (<code>χ/Q</code>, Deposition, Sensitivity):</strong> Relative dispersion dilution factor and hypothetical <code>% Pb</code> release scenarios; actual airborne lead requires scaling by source term <code>Q</code>.</li>
-            <li><strong>Beyond Latest EPA Timestamp:</strong> When playback advances past the green observed window on the timeline, all Xact towers switch to <code>No obs yet</code> to mark pure forward projection.</li>
+            <li><strong>Beyond Latest Real-World Timestamp:</strong> When playback advances past the green observed window on the timeline, Xact towers switch to <code>No obs yet</code> and wind arrows dim to mark pure forward projection.</li>
           </ul>
         </div>
       </div>
@@ -307,6 +316,37 @@
           </thead>
           <tbody id="tbl-wx-body"></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- 24-Hour Rolling Multi-Detector Time-Series & Wind Assimilation Archive -->
+    <section id="history-24h" class="block">
+      <h2>
+        🕒 24-Hour Multi-Detector Time-Series &amp; Live Wind Assimilation Archive
+        <span class="tag-live">● Rolling 24h+ History</span>
+        <span class="tag-hybrid">Obs vs. Forecast Shift</span>
+      </h2>
+      <p class="section-lead" id="hist-24h-summary">
+        Continuous rolling 24-hour+ historical baseline and post-detonation archive captured across EPA Region 7 Xact continuous monitors (paginated), 10 NWS/IEM ASOS airports, 6 Iowa DOT RWIS corridor highway stations, and Open-Meteo regional air quality—automatically archived into deduplicated snapshots and assimilated into the 3D wind field every 10 minutes.
+      </p>
+
+      <div class="explorer-controls" style="margin-bottom:1rem;">
+        <div>
+          <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.3rem;text-transform:uppercase;">24h Surface Weather Metric (ASOS + RWIS)</div>
+          <div class="stn-tabs" id="wx-metric-tabs">
+            <button class="stn-tab active" data-wxm="speed">Wind Speed (m/s)</button>
+            <button class="stn-tab" data-wxm="direction">Wind Direction (° FROM)</button>
+            <button class="stn-tab" data-wxm="temp">Temperature (°C)</button>
+          </div>
+        </div>
+        <div id="hist-24h-pills" style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-left:auto;"></div>
+      </div>
+
+      <div class="charts-grid-2x2">
+        <div id="chart-24h-assim" class="chart-box"></div>
+        <div id="chart-24h-wx" class="chart-box"></div>
+        <div id="chart-24h-xact" class="chart-box"></div>
+        <div id="chart-24h-aq" class="chart-box"></div>
       </div>
     </section>
 

@@ -12,6 +12,7 @@ const state = {
   staticData: null,
   liveData: null,
   selectedStn: 'AS01',
+  wxMetric: 'speed', // 'speed' | 'direction' | 'temp'
   releasePct: 0.1, // default 0.1% Pb on interactive slider
   obs3d: null,
   curSimSec: 660,
@@ -59,6 +60,12 @@ function renderHeroKPIs() {
   }
   document.getElementById('kpi-net-val').textContent =
     `${sum.epa_monitors_deployed || 43} EPA · ${sum.asos_stations_live || 10} ASOS · ${sum.rwis_stations_live || 5} RWIS`;
+  const netSub = document.getElementById('kpi-net-sub');
+  if (netSub) {
+    const n24 = sum.total_24h_obs ? `${sum.total_24h_obs.toLocaleString()} 24h+ obs` : '24h+ archived';
+    const wcut = sum.wind_obs_cutoff_min != null ? `Wind assim ≤T+${sum.wind_obs_cutoff_min}m` : '10m daemon';
+    netSub.textContent = `${n24} · ${wcut} · live CORS refresh`;
+  }
 }
 
 function renderStationChart() {
@@ -370,24 +377,43 @@ function buildEpaLiveHud() {
   }
 }
 
-function updateEpaHudAtTime(sec, xactSnap, maxObsSec) {
+function updateEpaHudAtTime(sec, xactSnap, maxObsSec, windCutoffSec, plumeMode) {
   state.curSimSec = sec;
   const maxSec = 14400;
   const xPx = Math.max(0, Math.min(156, (sec / maxSec) * 156)).toFixed(1);
-  const isBeyond = sec > maxObsSec + 180;
+  const isBeyondEpa = sec > maxObsSec + 180;
+  const isBeyondWind = sec > (windCutoffSec ?? maxObsSec) + 300;
   const latestUtc = (state.liveData?.summary?.xact_latest_obs_utc || '').slice(11, 16) || 'latest';
+  const windUtc = (state.liveData?.summary?.wind_obs_cutoff_utc || '').slice(11, 16) || latestUtc;
 
   const hudClk = document.getElementById('epa-hud-clock');
   if (hudClk) hudClk.textContent = fmtTimePost(sec);
 
   const hudBadge = document.getElementById('epa-hud-badge');
   const modePill = document.getElementById('readout-mode');
-  if (isBeyond) {
-    if (hudBadge) { hudBadge.className = 'tag-proj'; hudBadge.textContent = `Proj Only (>${latestUtc}Z)`; }
-    if (modePill) { modePill.className = 'mode-pill proj'; modePill.textContent = `◆ Projection Only (>${latestUtc}Z)`; }
-  } else {
-    if (hudBadge) { hudBadge.className = 'tag-live'; hudBadge.textContent = '● Live Window'; }
-    if (modePill) { modePill.className = 'mode-pill live'; modePill.textContent = '● Live Obs + Proj'; }
+  if (hudBadge) {
+    if (isBeyondEpa) {
+      hudBadge.className = 'tag-proj';
+      hudBadge.textContent = `Proj Only (>${latestUtc}Z)`;
+    } else {
+      hudBadge.className = 'tag-live';
+      hudBadge.textContent = '● Live Window';
+    }
+  }
+  if (modePill) {
+    if (plumeMode === 'forecast') {
+      modePill.className = 'mode-pill proj';
+      modePill.textContent = isBeyondEpa ? `◆ 15Z Forecast Only (>${latestUtc}Z)` : '◆ 15Z Forecast + Live EPA';
+    } else if (!isBeyondEpa && !isBeyondWind) {
+      modePill.className = 'mode-pill live';
+      modePill.textContent = '● Live EPA + Obs-Wind Reanalysis';
+    } else if (!isBeyondWind) {
+      modePill.className = 'mode-pill live';
+      modePill.textContent = `● Obs-Wind Reanalysis (≤${windUtc}Z)`;
+    } else {
+      modePill.className = 'mode-pill proj';
+      modePill.textContent = `◆ Forecast Projection (>${windUtc}Z)`;
+    }
   }
 
   for (const sid of ['AS01', 'AS02', 'AS03', 'AS04']) {
@@ -425,6 +451,149 @@ function updateEpaHudAtTime(sec, xactSnap, maxObsSec) {
       'shapes[2].x1': xMin,
       'annotations[1].x': Math.min(158, xMin),
     }).catch(() => {});
+  }
+}
+
+function render24hArchiveCharts() {
+  if (!window.Plotly || !state.liveData) return;
+  const live = state.liveData;
+  const sum = live.summary || {};
+
+  // Populate summary pills
+  const pillsEl = document.getElementById('hist-24h-pills');
+  if (pillsEl) {
+    const wa = live.wind_assimilation || {};
+    const shiftTxt = state.obs3d?.assimShiftInfo
+      ? `3D Plume Shift @ +2h: ${state.obs3d.assimShiftInfo.dist_km} km ${state.obs3d.assimShiftInfo.compass} vs 15Z fcst`
+      : `Wind Assimilation ≤ T+${wa.obs_cutoff_min ?? 0}m`;
+    pillsEl.innerHTML =
+      `<span class="tag-live">● ${(sum.total_24h_obs || 0).toLocaleString()} Stored 24h+ Obs</span>` +
+      `<span class="tag-hybrid">Obs Winds ≤ T+${wa.obs_cutoff_min ?? 0}m (${(wa.obs_cutoff_utc || '').slice(11, 16)}Z)</span>` +
+      `<span class="tag-proj">${shiftTxt}</span>`;
+  }
+
+  const baseLayout = {
+    paper_bgcolor: '#0b111b',
+    plot_bgcolor: '#111927',
+    font: { color: '#cbd5e1', family: 'Inter, sans-serif', size: 11 },
+    margin: { t: 42, r: 46, b: 64, l: 54 },
+    legend: { orientation: 'h', y: -0.28, font: { size: 10 } },
+  };
+  const blastLine = {
+    type: 'line', x0: '2026-11-25T15:00:00Z', x1: '2026-11-25T15:00:00Z',
+    y0: 0, y1: 1, yref: 'paper', line: { color: '#ff4757', width: 1.6, dash: 'dash' },
+  };
+
+  // 1. Live Wind Assimilation vs. Initial 15Z Forecast (T=0 -> +4h)
+  const wa = live.wind_assimilation || {};
+  const ts = wa.timeline_summary || [];
+  if (ts.length) {
+    const obsPart = ts.filter((r) => r.mode === 'observed_reanalysis');
+    const fcstPart = ts.filter((r) => r.mode === 'forecast_projection');
+    const traces1 = [
+      { x: obsPart.map((r) => r.t_min), y: obsPart.map((r) => r.assim_ms), mode: 'lines+markers', name: 'Observed Corridor Speed (m/s)', line: { color: '#00ff88', width: 2.6 }, marker: { size: 5 } },
+      { x: fcstPart.map((r) => r.t_min), y: fcstPart.map((r) => r.assim_ms), mode: 'lines', name: 'Relaxed Forecast Speed', line: { color: '#00ff88', width: 2, dash: 'dot' } },
+      { x: ts.map((r) => r.t_min), y: ts.map((r) => r.fcst_ms), mode: 'lines', name: 'Initial 15Z Forecast Speed', line: { color: '#fbbf24', width: 1.8, dash: 'dash' } },
+      { x: obsPart.map((r) => r.t_min), y: obsPart.map((r) => r.assim_from_deg), yaxis: 'y2', mode: 'lines', name: 'Observed Wind Dir (°)', line: { color: '#38bdf8', width: 2.2 } },
+      { x: ts.map((r) => r.t_min), y: ts.map((r) => r.fcst_from_deg), yaxis: 'y2', mode: 'lines', name: '15Z Forecast Dir (°)', line: { color: '#f472b6', width: 1.5, dash: 'dash' } },
+    ];
+    Plotly.react('chart-24h-assim', traces1, {
+      ...baseLayout,
+      title: { text: `Live Observed Corridor Winds vs. Initial Forecast (Cutoff T+${wa.obs_cutoff_min}m)`, font: { size: 12.8, color: '#fff' } },
+      xaxis: { title: 'Minutes Post-Detonation (0 = 15:00 UTC)', gridcolor: '#1e2c40' },
+      yaxis: { title: 'Surface Speed (m/s)', gridcolor: '#1e2c40' },
+      yaxis2: { title: 'Wind FROM (°)', overlaying: 'y', side: 'right', showgrid: false, range: [0, 90] },
+      shapes: [
+        { type: 'rect', x0: 0, x1: wa.obs_cutoff_min || 0, y0: 0, y1: 1, yref: 'paper', fillcolor: 'rgba(0,255,136,0.06)', line: { width: 0 } },
+        { type: 'line', x0: wa.obs_cutoff_min || 0, x1: wa.obs_cutoff_min || 0, y0: 0, y1: 1, yref: 'paper', line: { color: '#00ff88', width: 1.8, dash: 'dot' } },
+      ],
+    }, { responsive: true, displayModeBar: false });
+  }
+
+  // 2. 24-Hour Surface Weather Across Corridor ASOS + RWIS
+  const wxStns = [
+    { label: 'KBRL (ASOS · 16 km)', ser: live.asos?.KBRL?.series_24h, color: '#00e5ff', isF: false },
+    { label: 'KMPZ (ASOS · 26 km)', ser: live.asos?.KMPZ?.series_24h, color: '#fbbf24', isF: false },
+    { label: 'KFSW (ASOS · 22 km)', ser: live.asos?.KFSW?.series_24h, color: '#f472b6', isF: false },
+    { label: 'RBUI4 (RWIS · 23 km)', ser: live.rwis?.RBUI4?.series_24h, color: '#00ff88', isF: true },
+    { label: 'RMPI4 (RWIS · 26 km)', ser: live.rwis?.RMPI4?.series_24h, color: '#a855f7', isF: true },
+  ];
+  const m = state.wxMetric;
+  const yTitle = m === 'speed' ? 'Wind Speed (m/s)' : (m === 'direction' ? 'Wind Direction (° FROM)' : 'Temperature (°C)');
+  const traces2 = wxStns.filter((s) => s.ser && s.ser.length).map((s) => {
+    const xs = [], ys = [];
+    for (const r of s.ser) {
+      const val = m === 'speed' ? r.wind_ms : (m === 'direction' ? r.wind_from_deg : (s.isF ? (r.temp_f != null ? (r.temp_f - 32) * 5 / 9 : null) : r.temp_c));
+      if (val == null) continue;
+      xs.push(r.ts_utc);
+      ys.push(Math.round(val * 100) / 100);
+    }
+    return { x: xs, y: ys, mode: 'lines', name: s.label, line: { color: s.color, width: 1.9 } };
+  });
+  Plotly.react('chart-24h-wx', traces2, {
+    ...baseLayout,
+    title: { text: `24-Hour Corridor Surface ${m === 'speed' ? 'Wind Speed' : (m === 'direction' ? 'Wind Direction' : 'Temperature')} (ASOS + IA RWIS)`, font: { size: 12.8, color: '#fff' } },
+    xaxis: { title: 'UTC Time (Red Dashed = 15:00Z Detonation)', gridcolor: '#1e2c40' },
+    yaxis: { title: yTitle, gridcolor: '#1e2c40' },
+    shapes: [blastLine],
+  }, { responsive: true, displayModeBar: false });
+
+  // 3. All 4 EPA Xact Stations Over Full Collected Window (Pre-Blast Baseline -> Present)
+  const xColors = { AS01: '#00e5ff', AS02: '#00ff88', AS03: '#a855f7', AS04: '#fbbf24' };
+  const traces3 = Object.entries(live.epa_xact || {}).map(([sid, st]) => ({
+    x: (st.series || []).map((r) => r.ts_utc),
+    y: (st.series || []).map((r) => r.value),
+    mode: 'lines+markers',
+    name: `${sid} (${st.dist_km} km)`,
+    line: { color: xColors[sid] || '#fff', width: 2 },
+    marker: { size: 5 },
+  }));
+  Plotly.react('chart-24h-xact', traces3, {
+    ...baseLayout,
+    title: { text: 'Full EPA Region 7 Xact Lead History (Pre-Blast Baseline → Present)', font: { size: 12.8, color: '#fff' } },
+    xaxis: { title: 'UTC Time (Red Dashed = 15:00Z Detonation)', gridcolor: '#1e2c40' },
+    yaxis: { title: 'Airborne Lead (µg/m³)', gridcolor: '#1e2c40', rangemode: 'tozero' },
+    shapes: [
+      blastLine,
+      { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 0.15, y1: 0.15, line: { color: '#e879f9', width: 1.2, dash: 'dot' } },
+    ],
+    annotations: [
+      { x: 0.98, xref: 'paper', y: 0.0115, text: 'All obs < 7% of 0.15 µg/m³ NAAQS', showarrow: false, xanchor: 'right', font: { color: '#6ee7b7', size: 10 } },
+    ],
+  }, { responsive: true, displayModeBar: false });
+
+  // 4. 24-Hour Corridor Ambient Air Quality (PM2.5 & PM10 across 5 towns)
+  const aqMap = live.openmeteo_aq_24h || {};
+  const aqColors = ['#00e5ff', '#00ff88', '#fbbf24', '#f472b6', '#a855f7'];
+  const traces4 = Object.entries(aqMap).map(([town, ser], idx) => ({
+    x: (ser || []).map((r) => r.ts_utc),
+    y: (ser || []).map((r) => r.pm2_5),
+    mode: 'lines',
+    name: `${town.replace(', IA', '').replace(', MO', ' (MO)')} PM2.5`,
+    line: { color: aqColors[idx % aqColors.length], width: 2 },
+  }));
+  Plotly.react('chart-24h-aq', traces4, {
+    ...baseLayout,
+    title: { text: '24-Hour Corridor Ambient PM2.5 Baseline & Post-Blast (Open-Meteo AQ)', font: { size: 12.8, color: '#fff' } },
+    xaxis: { title: 'UTC Time (Red Dashed = 15:00Z Detonation)', gridcolor: '#1e2c40' },
+    yaxis: { title: 'Ambient PM2.5 (µg/m³)', gridcolor: '#1e2c40', rangemode: 'tozero' },
+    shapes: [blastLine],
+  }, { responsive: true, displayModeBar: false });
+}
+
+function updateAssimNote() {
+  const el = document.getElementById('lbl-assim-note');
+  if (!el || !state.obs3d) return;
+  const info = state.obs3d.assimShiftInfo;
+  if (state.obs3d.plumeMode === 'forecast') {
+    el.style.color = '#fcd34d';
+    el.textContent = 'Showing initial pre-blast 15Z forecast winds only (unassimilated).';
+  } else if (info) {
+    el.style.color = '#6ee7b7';
+    el.textContent = `Driven by live ASOS+RWIS ≤T+${info.cutoff_min}m (${String(info.cutoff_utc || '').slice(11, 16)}Z) · Shifts plume ${info.dist_km} km ${info.compass} @ +2h vs 15Z fcst.`;
+  } else {
+    el.style.color = '#7dd3fc';
+    el.textContent = 'Live wind assimilation active (ASOS + RWIS).';
   }
 }
 
@@ -480,6 +649,8 @@ async function liveBrowserRefresh() {
       state.obs3d.updateLiveTelemetry(state.liveData);
       state.obs3d.updateParticlesAtTime(state.obs3d.simSec);
     }
+    updateAssimNote();
+    render24hArchiveCharts();
   } catch (err) {
     console.warn('Live browser refresh partial fallback:', err);
   } finally {
@@ -515,11 +686,11 @@ async function boot() {
   const inspBody = document.getElementById('insp-body');
 
   const obs = new Plume3DObservatory(document.getElementById('canvas-3d'), {
-    onTick: (sec, pblM, airPct, xactSnap, maxObsSec) => {
+    onTick: (sec, pblM, airPct, xactSnap, maxObsSec, windCutoffSec, plumeMode) => {
       sliderTime.value = Math.round(sec);
       readoutTime.textContent = `${fmtTimePost(sec)} · ${fmtCstClock(sec)}`;
       readoutPbl.textContent = `PBL: ${Math.round(pblM)} m · Airborne: ${airPct}%`;
-      updateEpaHudAtTime(sec, xactSnap, maxObsSec);
+      updateEpaHudAtTime(sec, xactSnap, maxObsSec, windCutoffSec, plumeMode);
     },
     onSelect: (info) => {
       inspTitle.textContent = info.title;
@@ -531,9 +702,30 @@ async function boot() {
   const qp = new URLSearchParams(window.location.search);
   if (qp.has('t')) obs.simSec = Math.max(0, Math.min(14400, Number(qp.get('t')) || 0));
   if (qp.get('paused') === '1') obs.playing = false;
+  if (qp.get('mode') === 'forecast') obs.plumeMode = 'forecast';
   await obs.init(state.staticData, demData, plumeData, state.liveData);
   document.getElementById('loading-3d').style.display = 'none';
   if (!obs.playing) document.getElementById('btn-play').textContent = '▶ Play';
+  const selPlumeMode = document.getElementById('sel-plume-mode');
+  if (selPlumeMode) {
+    selPlumeMode.value = obs.plumeMode;
+    selPlumeMode.onchange = (e) => {
+      obs.setPlumeMode(e.target.value);
+      updateAssimNote();
+    };
+  }
+  updateAssimNote();
+  render24hArchiveCharts();
+
+  // Wire 24h Weather Metric tabs
+  document.querySelectorAll('#wx-metric-tabs .stn-tab').forEach((btn) => {
+    btn.onclick = () => {
+      document.querySelectorAll('#wx-metric-tabs .stn-tab').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.wxMetric = btn.dataset.wxm;
+      render24hArchiveCharts();
+    };
+  });
 
   // Wire collapsible Live EPA HUD toggle
   const epaHud = document.getElementById('hud-epa-live');

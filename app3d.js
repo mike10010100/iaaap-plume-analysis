@@ -18,9 +18,13 @@ export class Plume3DObservatory {
     this.simSec = 660.0;  // Start at T+11m right as projected plume crosses AS01 (live 0.0021 ug/m3 trace!)
     this.maxSec = 14400.0;
     this.colorMode = 'regime'; // 'regime' | 'altitude'
+    this.plumeMode = 'assimilated'; // 'assimilated' | 'forecast'
     this.pickables = [];
     this.xactVisuals = {};
+    this.windVisuals = [];
     this.latestXactObsSec = 6600.0;
+    this.windObsCutoffSec = 6600.0;
+    this.assimShiftInfo = null;
     this.sensorGroup = new THREE.Group();
     this.windGroup = new THREE.Group();
     this.sightlineGroup = new THREE.Group();
@@ -136,6 +140,7 @@ export class Plume3DObservatory {
   async init(staticData, demData, plumeData, liveData) {
     this.staticData = staticData;
     this.dem = demData;
+    this.forecastPlume = plumeData;
     this.plume = plumeData;
     this.maxSec = plumeData.times_sec[plumeData.times_sec.length - 1];
 
@@ -159,6 +164,186 @@ export class Plume3DObservatory {
     this.applyVerticalExaggeration(this.vertExag);
     this.updateParticlesAtTime(this.simSec);
     this._animate();
+  }
+
+  // Deterministic Mulberry32 PRNG + Box-Muller for instant (<35ms) in-browser live-wind re-assimilation
+  _buildAssimilatedPlume(windAssim) {
+    if (!windAssim || !windAssim.u_assim || !windAssim.z_grid_m || !windAssim.times_min) return null;
+    let seed = 202611253 >>> 0;
+    const rand = () => {
+      seed = (seed + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const randn = () => {
+      const u1 = Math.max(1e-7, rand());
+      return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * rand());
+    };
+
+    const zGrid = windAssim.z_grid_m;
+    const nZ = zGrid.length;
+    const tMinArr = windAssim.times_min;
+    const nT = tMinArr.length;
+    const uAss = windAssim.u_assim;
+    const vAss = windAssim.v_assim;
+    const pblArr = windAssim.pbl_m;
+
+    const N_C = 700, N_10 = 850, N_25 = 850;
+    const N = N_C + N_10 + N_25;
+    const regimes = new Uint8Array(N);
+    const vs = new Float32Array(N);
+    const pStick = new Float32Array(N);
+    const x = new Float32Array(N);
+    const y = new Float32Array(N);
+    const z = new Float32Array(N);
+    const wBuoy = new Float32Array(N);
+    const cdArr = new Float32Array(N);
+    const sdArr = new Float32Array(N);
+    const spdArr = new Float32Array(N);
+    const active = new Uint8Array(N);
+
+    const bSin = Math.sin((248.0 * Math.PI) / 180.0);
+    const bCos = Math.cos((248.0 * Math.PI) / 180.0);
+    for (let i = 0; i < N; i++) {
+      active[i] = 1;
+      const r = i < N_C ? 0 : (i < N_C + N_10 ? 1 : 2);
+      regimes[i] = r;
+      if (r === 0) {
+        vs[i] = 10 ** (Math.log10(0.035) + rand() * (Math.log10(0.30) - Math.log10(0.035)));
+        pStick[i] = 1.0;
+      } else if (r === 1) {
+        vs[i] = 10 ** (Math.log10(0.0012) + rand() * (Math.log10(0.016) - Math.log10(0.0012)));
+        pStick[i] = 0.30;
+      } else {
+        vs[i] = 10 ** (Math.log10(0.00005) + rand() * (Math.log10(0.0006) - Math.log10(0.00005)));
+        pStick[i] = 0.06;
+      }
+      const bunker = rand() < 0.35 ? -120.0 : 120.0;
+      x[i] = bunker * bSin + randn() * 45.0;
+      y[i] = bunker * bCos + randn() * 45.0;
+      z[i] = 5.0 + rand() * 30.0;
+      let wb = bunker < 0 ? (0.6 + rand() * 1.4) : (1.5 + rand() * 2.7);
+      if (r === 0) wb *= 0.65;
+      wBuoy[i] = wb;
+      const dth = (randn() * 5.5 * Math.PI) / 180.0;
+      cdArr[i] = Math.cos(dth);
+      sdArr[i] = Math.sin(dth);
+      spdArr[i] = 1.0 + randn() * 0.08;
+    }
+
+    const kfSec = this.forecastPlume.times_sec;
+    const kfSet = new Set(kfSec);
+    const frames = [];
+    const framesPbl = [];
+    const uProfT = new Float32Array(nZ);
+    const vProfT = new Float32Array(nZ);
+
+    const interpZ = (zz, arr) => {
+      if (zz <= zGrid[0]) return arr[0];
+      if (zz >= zGrid[nZ - 1]) return arr[nZ - 1];
+      for (let k = 0; k < nZ - 1; k++) {
+        if (zz <= zGrid[k + 1]) {
+          const frac = (zz - zGrid[k]) / (zGrid[k + 1] - zGrid[k]);
+          return arr[k] * (1.0 - frac) + arr[k + 1] * frac;
+        }
+      }
+      return arr[nZ - 1];
+    };
+
+    const snap = (pblVal) => {
+      const flat = new Int32Array(N * 3);
+      for (let i = 0; i < N; i++) {
+        const j = i * 3;
+        flat[j] = Math.round(x[i] * 0.1);
+        flat[j + 1] = Math.round(y[i] * 0.1);
+        flat[j + 2] = active[i] ? Math.round(Math.max(0, Math.min(1200, z[i]))) : 0;
+      }
+      frames.push(flat);
+      framesPbl.push(Math.round(pblVal * 10) / 10);
+    };
+
+    snap(pblArr[0]);
+    let tCur = 0;
+    while (tCur < 14400) {
+      const dt = tCur < 120 ? 5.0 : 30.0;
+      tCur += dt;
+      const tMin = tCur / 60.0;
+      const idxLo = Math.min(Math.floor(tMin / 10.0), nT - 2);
+      const tf = Math.min(1.0, (tMin - tMinArr[idxLo]) / 10.0);
+      for (let k = 0; k < nZ; k++) {
+        uProfT[k] = uAss[idxLo][k] * (1.0 - tf) + uAss[idxLo + 1][k] * tf;
+        vProfT[k] = vAss[idxLo][k] * (1.0 - tf) + vAss[idxLo + 1][k] * tf;
+      }
+      const pblC = Math.min(1075.0, Math.max(285.0, pblArr[idxLo] * (1.0 - tf) + pblArr[idxLo + 1] * tf));
+      const conv = Math.min(1.0, (tCur / 3600.0) / 2.0);
+      const sigH = Math.sqrt(2.0 * (16.0 + 36.0 * conv) * dt);
+      const kzBase = 3.2 + 14.0 * conv;
+      const buoyDecay = tCur <= 180 ? Math.exp(-tCur / 45.0) : 0.0;
+
+      for (let i = 0; i < N; i++) {
+        if (!active[i]) continue;
+        const za = z[i];
+        const um = interpZ(za, uProfT);
+        const vm = interpZ(za, vProfT);
+        const ur = spdArr[i] * (um * cdArr[i] + vm * sdArr[i]);
+        const vr = spdArr[i] * (-um * sdArr[i] + vm * cdArr[i]);
+        const kz = kzBase * Math.max(0.15, Math.min(1.0, 1.0 - 0.7 * (za / 1075.0) ** 2));
+        x[i] += ur * dt + randn() * sigH;
+        y[i] += vr * dt + randn() * sigH;
+        let zn = za + (wBuoy[i] * buoyDecay - vs[i]) * dt + randn() * Math.sqrt(2.0 * kz * dt);
+        if (zn > pblC) zn = Math.max(-50.0, Math.min(1075.0, pblC - (zn - pblC) * 0.85));
+        if (zn <= 0.0) {
+          if (rand() < pStick[i]) {
+            active[i] = 0;
+            zn = 0.0;
+          } else {
+            zn = Math.abs(zn);
+          }
+        }
+        z[i] = zn;
+      }
+      if (kfSet.has(tCur)) snap(pblC);
+    }
+
+    // Measure airborne fine-plume centroid shift vs. initial 15Z forecast at T+120m (frame index for 7200s)
+    const idx2h = kfSec.indexOf(7200);
+    if (idx2h >= 0 && this.forecastPlume.frames[idx2h]) {
+      const fA = frames[idx2h], fF = this.forecastPlume.frames[idx2h];
+      let ax = 0, ay = 0, fx = 0, fy = 0, ca = 0, cf = 0;
+      for (let i = N_C; i < N; i++) {
+        const j = i * 3;
+        if (fA[j + 2] > 2) { ax += fA[j] * 0.01; ay += fA[j + 1] * 0.01; ca++; }
+        if (fF[j + 2] > 2) { fx += fF[j] * 0.01; fy += fF[j + 1] * 0.01; cf++; }
+      }
+      if (ca > 0 && cf > 0) {
+        const dx = ax / ca - fx / cf, dy = ay / ca - fy / cf;
+        const distKm = Math.hypot(dx, dy);
+        const brg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+        const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        this.assimShiftInfo = {
+          dist_km: Math.round(distKm * 10) / 10,
+          compass: dirs[Math.round(brg / 45) % 8],
+          cutoff_min: windAssim.obs_cutoff_min,
+          cutoff_utc: windAssim.obs_cutoff_utc,
+        };
+      }
+    }
+
+    return {
+      n_particles: N,
+      coord_scale_m: 10.0,
+      times_sec: kfSec,
+      pbl_m: framesPbl,
+      regimes: Array.from(regimes),
+      frames,
+    };
+  }
+
+  setPlumeMode(mode) {
+    this.plumeMode = mode;
+    this.plume = (mode === 'assimilated' && this.assimilatedPlume) ? this.assimilatedPlume : this.forecastPlume;
+    this.updateParticlesAtTime(this.simSec);
   }
 
   _buildTerrain() {
@@ -499,6 +684,17 @@ export class Plume3DObservatory {
     // Keep only static pickables
     this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower'].includes(m.userData.type));
     this.xactVisuals = {};
+    this.windVisuals = [];
+
+    // Rebuild live-assimilated 3D particle trajectories from latest ASOS + RWIS wind assimilation!
+    const wa = liveData.wind_assimilation;
+    if (wa && wa.u_assim) {
+      this.windObsCutoffSec = (wa.obs_cutoff_min ?? 0) * 60;
+      this.assimilatedPlume = this._buildAssimilatedPlume(wa);
+      if (this.plumeMode === 'assimilated' && this.assimilatedPlume) {
+        this.plume = this.assimilatedPlume;
+      }
+    }
 
     const xactMap = liveData.epa_xact || {};
     const { wx_min_km, wx_max_km, wy_min_km, wy_max_km } = this.dem;
@@ -581,41 +777,109 @@ export class Plume3DObservatory {
       }
     }
 
-    // 2. Plot Live ASOS & Iowa DOT RWIS 3D Wind Arrows!
-    const addWindArrow = (lat, lon, toDeg, spdMs, color, title, body) => {
-      if (toDeg == null || spdMs == null) return;
+    // 2. Plot Time-Synced Live ASOS & Iowa DOT RWIS 3D Wind Arrows!
+    const addWindArrow = (sid, net, lat, lon, baseColor, series, fallbackRec, labelTitle) => {
       const { x, z } = this.ll2xz(lat, lon);
       if (x < wx_min_km - 5 || x > wx_max_km + 5 || -z < wy_min_km - 5 || -z > wy_max_km + 5) return;
       const baseY = this.terrainY(x, z) + 0.55;
-      const rad = (toDeg * Math.PI) / 180;
+      const validSer = (series || []).filter((r) => r.wind_to_deg != null && r.wind_ms != null);
+      const initTo = fallbackRec?.wind_to_deg ?? validSer[validSer.length - 1]?.wind_to_deg;
+      const initSpd = fallbackRec?.wind_ms ?? validSer[validSer.length - 1]?.wind_ms;
+      if (initTo == null || initSpd == null) return;
+
+      const rad = (initTo * Math.PI) / 180;
       const dir = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
-      const len = Math.max(1.8, spdMs * 0.9);
-      const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(x, baseY, z), len, color, 0.9, 0.55);
+      const len = Math.max(1.8, initSpd * 0.9);
+      const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(x, baseY, z), len, baseColor, 0.9, 0.55);
       this.windGroup.add(arrow);
 
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), new THREE.MeshBasicMaterial({ color }));
+      const orbMat = new THREE.MeshBasicMaterial({ color: baseColor });
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), orbMat);
       orb.position.set(x, baseY, z);
-      orb.userData = { type: 'wind', title, body: `<div style="margin-bottom:5px"><span class="tag-live">● Live Weather Obs</span></div>` + body };
+      const lastObsSec = validSer.length ? Math.max(0, validSer[validSer.length - 1].min_post_blast * 60) : 0;
+
+      const vis = { sid, net, arrow, orb, baseColor, series: validSer, fallbackRec, lastObsSec };
+      orb.userData = {
+        type: 'wind',
+        title: labelTitle,
+        getBody: (curSec) => {
+          const w = this._lookupWindAtSec(vis, curSec);
+          const atTRow = w.status === 'future'
+            ? `<span style="color:#fcd34d">Holding last obs (${String(w.tsUtc || '').slice(11, 16)}Z)</span>`
+            : `<span style="color:#6ee7b7;font-weight:700">${Math.round(w.fromDeg)}° → ${Math.round(w.toDeg)}° @ ${w.spdMs} m/s</span> (${String(w.tsUtc || '').slice(11, 16)}Z)`;
+          const latestSpd = fallbackRec?.wind_ms ?? w.spdMs;
+          const latestFrom = fallbackRec?.wind_from_deg ?? w.fromDeg;
+          const latestTo = fallbackRec?.wind_to_deg ?? w.toDeg;
+          const latestTs = fallbackRec?.valid_utc || w.tsUtc || '';
+          return `<div style="margin-bottom:5px"><span class="tag-live">● Live Time-Synced ${net}</span></div>` +
+            `<b>Wind @ 3D Clock:</b> ${atTRow}<br>` +
+            `<b>Latest (${String(latestTs).slice(11, 16)}Z):</b> FROM ${Math.round(latestFrom)}° → TO ${Math.round(latestTo)}° @ ${latestSpd} m/s (${(latestSpd * 2.237).toFixed(1)} mph)<br>` +
+            `<b>24h Time-Series Stored:</b> ${validSer.length} wind observations`;
+        },
+      };
       this.windGroup.add(orb);
       this.pickables.push(orb);
+      this.windVisuals.push(vis);
     };
 
     for (const [k, st] of Object.entries(liveData.asos || {})) {
-      const l = st.latest;
-      if (!l) continue;
-      addWindArrow(st.lat, st.lon, l.wind_to_deg, l.wind_ms, 0xffdd44,
-        `ASOS Weather ${k}`,
-        `<b>Observed (${l.valid_utc}):</b> Wind FROM ${l.wind_from_deg}° → TO ${l.wind_to_deg}°<br>` +
-        `<b>Speed:</b> ${l.wind_ms} m/s (${(l.wind_ms * 2.237).toFixed(1)} mph) | <b>Temp:</b> ${l.temp_c ?? '?'}°C | <b>Sky:</b> ${l.sky || 'CLR'}`);
+      addWindArrow(k, 'ASOS', st.lat, st.lon, 0xffdd44, st.series_24h, st.latest, `ASOS Weather ${k}`);
     }
     for (const [k, rw] of Object.entries(liveData.rwis || {})) {
-      addWindArrow(rw.lat, rw.lon, rw.wind_to_deg, rw.wind_ms, 0x38bdf8,
-        `Iowa DOT RWIS ${k} (${rw.name})`,
-        `<b>Observed (${rw.valid_utc}):</b> Wind FROM ${rw.wind_from_deg}° → TO ${rw.wind_to_deg}°<br>` +
-        `<b>Speed:</b> ${rw.wind_ms} m/s | <b>Temp:</b> ${rw.temp_f}°F`);
+      addWindArrow(k, 'IA RWIS', rw.lat, rw.lon, 0x38bdf8, rw.series_24h, rw, `Iowa DOT RWIS ${k} (${rw.name})`);
     }
 
     this._updateXactVisualsAtTime(this.simSec);
+    this._updateWindVisualsAtTime(this.simSec);
+  }
+
+  _lookupWindAtSec(vis, sec) {
+    const ser = vis.series;
+    if (!ser || !ser.length) {
+      const f = vis.fallbackRec || {};
+      return { status: 'live', fromDeg: f.wind_from_deg ?? 0, toDeg: f.wind_to_deg ?? 180, spdMs: f.wind_ms ?? 0, tsUtc: f.valid_utc };
+    }
+    const secMin = sec / 60.0;
+    const lastRec = ser[ser.length - 1];
+    if (secMin > lastRec.min_post_blast + 20.0) {
+      return {
+        status: 'future',
+        fromDeg: lastRec.wind_from_deg,
+        toDeg: lastRec.wind_to_deg,
+        spdMs: lastRec.wind_ms,
+        tsUtc: lastRec.ts_utc,
+      };
+    }
+    // Nearest valid observation in time (prefers <= sec + 5m)
+    let best = ser[0], bestDt = 1e9;
+    for (let i = 0; i < ser.length; i++) {
+      const dt = Math.abs(ser[i].min_post_blast - secMin);
+      if (dt < bestDt) {
+        bestDt = dt;
+        best = ser[i];
+      }
+    }
+    return {
+      status: 'live',
+      fromDeg: best.wind_from_deg,
+      toDeg: best.wind_to_deg,
+      spdMs: best.wind_ms,
+      tsUtc: best.ts_utc,
+    };
+  }
+
+  _updateWindVisualsAtTime(sec) {
+    for (const vis of this.windVisuals) {
+      const w = this._lookupWindAtSec(vis, sec);
+      if (w.toDeg == null || w.spdMs == null) continue;
+      const rad = (w.toDeg * Math.PI) / 180;
+      const dir = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
+      vis.arrow.setDirection(dir);
+      vis.arrow.setLength(Math.max(1.6, w.spdMs * 0.9), 0.85, 0.52);
+      const col = w.status === 'future' ? 0x64748b : vis.baseColor;
+      vis.arrow.setColor(col);
+      vis.orb.material.color.setHex(col);
+    }
   }
 
   _updateXactVisualsAtTime(sec) {
@@ -774,11 +1038,12 @@ export class Plume3DObservatory {
       this.pblLbl.position.y = (pblM / 1000.0) * exag + 0.45;
     }
 
-    // Time-sync 3D live EPA Xact towers & labels with the playback clock!
+    // Time-sync 3D live EPA Xact towers & ASOS/RWIS wind arrows with the playback clock!
     const xactSnap = this._updateXactVisualsAtTime(clamped);
+    this._updateWindVisualsAtTime(clamped);
 
     if (this.cb.onTick) {
-      this.cb.onTick(clamped, pblM, Math.round((airborneCount / N) * 100), xactSnap, this.latestXactObsSec);
+      this.cb.onTick(clamped, pblM, Math.round((airborneCount / N) * 100), xactSnap, this.latestXactObsSec, this.windObsCutoffSec, this.plumeMode);
     }
   }
 
