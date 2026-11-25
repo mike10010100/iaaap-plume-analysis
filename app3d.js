@@ -803,14 +803,55 @@ export class Plume3DObservatory {
       }
     }
     const streamStyles = {
-      'Long Creek':        { color: 0x22d3ee, opacity: 0.95 },
-      'Brush Creek':       { color: 0x38bdf8, opacity: 0.88 },
-      'Spring Creek':      { color: 0x60a5fa, opacity: 0.72 },
-      'Skunk River':       { color: 0x0ea5e9, opacity: 0.92 },
-      'Des Moines River':  { color: 0x3b82f6, opacity: 0.78 },
-      'Fox River':         { color: 0x60a5fa, opacity: 0.65 },
-      'Mississippi River': { color: 0x2563eb, opacity: 0.85 },
+      'Long Creek':        { color: 0x22d3ee, opacity: 0.95, isMajor: false, coneColor: 0x22d3ee },
+      'Brush Creek':       { color: 0x38bdf8, opacity: 0.88, isMajor: false, coneColor: 0x38bdf8 },
+      'Spring Creek':      { color: 0x60a5fa, opacity: 0.78, isMajor: false, coneColor: 0x60a5fa },
+      'Lost Creek':        { color: 0x38bdf8, opacity: 0.80, isMajor: false, coneColor: 0x38bdf8 },
+      'Skunk River':       { color: 0x0ea5e9, opacity: 0.94, isMajor: true,  coneColor: 0x22d3ee },
+      'Des Moines River':  { color: 0x3b82f6, opacity: 0.84, isMajor: true,  coneColor: 0x60a5fa },
+      'Fox River':         { color: 0x60a5fa, opacity: 0.74, isMajor: true,  coneColor: 0x60a5fa },
+      'Mississippi River': { color: 0x2563eb, opacity: 0.90, isMajor: true,  coneColor: 0x60a5fa },
     };
+
+    const { wx_min_km, wx_max_km, wy_min_km, wy_max_km } = this.dem;
+    const majorConeGeo = new THREE.ConeGeometry(0.17, 0.56, 7);
+    const creekConeGeo = new THREE.ConeGeometry(0.13, 0.44, 7);
+
+    // Stitch USGS NHD flowline segments (already oriented upstream -> downstream!) into continuous chains
+    const stitchNhdChains = (rawPaths) => {
+      const rem = rawPaths.filter((p) => p.length >= 2).map((p) => p.slice());
+      const chains = [];
+      const tol = 0.35;
+      while (rem.length) {
+        let chain = rem.shift();
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (let i = 0; i < rem.length; i++) {
+            const p = rem[i];
+            const cEnd = chain[chain.length - 1];
+            const pStart = p[0];
+            if (Math.hypot(cEnd[0] - pStart[0], cEnd[1] - pStart[1]) < tol) {
+              chain.push(...p.slice(1));
+              rem.splice(i, 1);
+              changed = true;
+              break;
+            }
+            const pEnd = p[p.length - 1];
+            const cStart = chain[0];
+            if (Math.hypot(pEnd[0] - cStart[0], pEnd[1] - cStart[1]) < tol) {
+              chain = p.slice(0, -1).concat(chain);
+              rem.splice(i, 1);
+              changed = true;
+              break;
+            }
+          }
+        }
+        chains.push(chain);
+      }
+      return chains;
+    };
+
     for (const [wname, paths] of Object.entries(s.hydrology.waterways_km || {})) {
       const st = streamStyles[wname];
       if (!st) continue;
@@ -820,36 +861,38 @@ export class Plume3DObservatory {
         const pts = poly.map(([x, y]) => new THREE.Vector3(x, this.terrainY(x, -y) + 0.11, -y));
         this.hydroGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
       }
-    }
 
-    // Animated structural water-flow direction chevrons (strictly blue/cyan hydrology markers, NOT lead plumes!)
-    const mkFlowCurve = (xyList, count, color, speed) => {
-      const pts = xyList.map(([x, yN]) => new THREE.Vector3(x, this.terrainY(x, -yN) + 0.20, -yN));
-      const curve = new THREE.CatmullRomCurve3(pts);
-      const coneGeo = new THREE.ConeGeometry(0.18, 0.60, 8);
-      const coneMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.90 });
-      for (let i = 0; i < count; i++) {
-        const cone = new THREE.Mesh(coneGeo, coneMat);
-        this.hydroGroup.add(cone);
-        this.flowPulses.push({ mesh: cone, curve, phase: i / count, speed });
+      // Populate uniform-spaced structural water-flow direction chevrons along EVERY stitched NHD river/creek!
+      const coneMat = new THREE.MeshBasicMaterial({ color: st.coneColor, transparent: true, opacity: 0.90 });
+      const coneGeo = st.isMajor ? majorConeGeo : creekConeGeo;
+      const spacingKm = st.isMajor ? 5.8 : 4.0;
+      const speedKmS = st.isMajor ? 1.55 : 1.10;
+      for (const chain of stitchNhdChains(paths)) {
+        // Clip vertices to terrain DEM bounds so cones never float past the map edge
+        const clipped = chain.filter(([x, y]) => x >= wx_min_km && x <= wx_max_km && y >= wy_min_km && y <= wy_max_km);
+        if (clipped.length < 2) continue;
+        const pts3d = clipped.map(([x, yN]) => new THREE.Vector3(x, this.terrainY(x, -yN) + 0.19, -yN));
+        const cumLen = new Float32Array(pts3d.length);
+        let acc = 0;
+        for (let i = 1; i < pts3d.length; i++) {
+          acc += Math.hypot(pts3d[i].x - pts3d[i - 1].x, pts3d[i].z - pts3d[i - 1].z);
+          cumLen[i] = acc;
+        }
+        if (acc < 3.5) continue; // Skip tiny sub-4 km islands/braids
+        const count = Math.max(2, Math.round(acc / spacingKm));
+        const chainTrack = { pts3d, cumLen, totalLen: acc, speedKmS };
+        for (let i = 0; i < count; i++) {
+          const cone = new THREE.Mesh(coneGeo, coneMat);
+          this.hydroGroup.add(cone);
+          this.flowPulses.push({ mesh: cone, track: chainTrack, phase: i / count });
+        }
       }
-    };
-    // Path 1: IAAAP Blast Pad -> Long Creek SSE -> Skunk River ESE -> Mississippi Confluence (exact USGS NHD coords)
-    mkFlowCurve([
-      [0.0, 0.0], [-0.13, -2.43], [0.24, -2.93], [1.64, -4.04], [1.84, -5.19], [2.16, -6.56],
-      [2.66, -7.87], [4.49, -9.16], [7.14, -10.37], [8.43, -9.91], [11.32, -12.30], [12.91, -12.41],
-    ], 10, 0x22d3ee, 0.065);
-    // Path 2: Mississippi River flowing SOUTH past Burlington UPSTREAM intake -> Skunk Confluence -> Fort Madison -> Keokuk
-    mkFlowCurve([
-      [17.91, 5.0], [14.54, 1.03], [13.5, -3.8], [12.76, -8.70], [12.91, -12.41], [12.02, -15.41],
-      [4.62, -19.02], [-2.33, -20.26], [-9.29, -24.78], [-11.66, -26.75], [-10.02, -30.95],
-      [-8.38, -34.23], [-9.30, -38.92], [-8.56, -44.15], [-10.40, -47.26],
-    ], 14, 0x60a5fa, 0.042);
+    }
 
     // 3 Clickable Municipal Drinking-Water Intake Beacons (visually showing upstream vs RO vs mainstem dilution!)
     const intakes = [
       {
-        lat: 40.8165, lon: -91.0970, color: 0x10b981, label: 'Burlington Water (UPSTREAM ✓)', fg: '#6ee7b7', bg: 'rgba(5,28,20,0.92)',
+        lat: 40.8165, lon: -91.0970, color: 0x10b981, label: 'Burlington Water (UPSTREAM ✓)', fg: '#6ee7b7', bg: 'rgba(5,28,20,0.92)', lblDy: 1.05,
         title: 'Burlington Municipal Waterworks (UPSTREAM)',
         body: `<div style="margin-bottom:5px"><span class="tag-live">● Hydrologically Upstream · Isolated</span></div>` +
               `<b>Source:</b> ~80% Mississippi River intake (<b>~12 km UPSTREAM</b> of the Skunk River confluence) + ~20% Pleistocene sand/gravel wells.<br>` +
@@ -857,7 +900,7 @@ export class Plume3DObservatory {
               `<b>Drinking-Water Risk:</b> <strong style="color:#34d399">Hydrologically isolated (No blast runoff path)</strong>.`,
       },
       {
-        lat: 40.6250, lon: -91.3200, color: 0x38bdf8, label: 'Ft. Madison Water (RO Wells ✓)', fg: '#7dd3fc', bg: 'rgba(6,22,36,0.92)',
+        lat: 40.6230, lon: -91.3080, color: 0x38bdf8, label: 'Ft. Madison Water (RO Wells ✓)', fg: '#7dd3fc', bg: 'rgba(6,22,36,0.92)', lblDy: 1.35,
         title: 'Fort Madison Municipal Water (Alluvial Wells + RO)',
         body: `<div style="margin-bottom:5px"><span class="tag-live">● Alluvial Aquifer + Reverse Osmosis</span></div>` +
               `<b>Source:</b> Municipal alluvial wells treated with <b>Reverse Osmosis (RO)</b> membranes (no direct raw Mississippi River intake).<br>` +
@@ -865,7 +908,7 @@ export class Plume3DObservatory {
               `<b>Drinking-Water Risk:</b> <strong style="color:#38bdf8">Negligible (Multi-barrier well + RO protection)</strong>.`,
       },
       {
-        lat: 40.3980, lon: -91.3750, color: 0x60a5fa, label: 'Keokuk Water (~50k cfs Dilution)', fg: '#93c5fd', bg: 'rgba(8,18,36,0.90)',
+        lat: 40.3980, lon: -91.3750, color: 0x60a5fa, label: 'Keokuk Water (~50k cfs Dilution)', fg: '#93c5fd', bg: 'rgba(8,18,36,0.90)', lblDy: 1.05,
         title: 'Keokuk Municipal Waterworks (Downstream Mississippi)',
         body: `<div style="margin-bottom:5px"><span class="tag-live">● Downstream Mainstem · Massive Dilution</span></div>` +
               `<b>Source:</b> Mississippi River mainstem ~50 km downstream of the Skunk River confluence.<br>` +
@@ -886,7 +929,7 @@ export class Plume3DObservatory {
       this.pickables.push(pin);
 
       const lbl = this._makeSpriteLabel(w.label, w.fg, w.bg, 19, { sizeMul: 0.80, groupTag: 'hydro' });
-      lbl.position.set(x, baseY + 1.05, z);
+      lbl.position.set(x, baseY + (w.lblDy || 1.05), z);
       this.hydroGroup.add(lbl);
     }
   }
@@ -1613,13 +1656,32 @@ export class Plume3DObservatory {
       }
     }
 
-    // Animate structural downstream water-flow direction chevrons (Long Creek -> Skunk River -> Mississippi)
+    // Animate structural downstream water-flow direction chevrons along EVERY stitched USGS NHD river & creek!
     if (this.hydroGroup.visible && this.flowPulses.length) {
-      for (const fp of this.flowPulses) {
-        const u = (fp.phase + nowSec * fp.speed) % 1.0;
-        fp.curve.getPointAt(u, fp.mesh.position);
-        fp.curve.getTangentAt(u, this._tmpDir).normalize();
-        fp.mesh.quaternion.setFromUnitVectors(this._upVec, this._tmpDir);
+      for (let i = 0; i < this.flowPulses.length; i++) {
+        const fp = this.flowPulses[i];
+        const tr = fp.track;
+        const dist = ((fp.phase + (nowSec * tr.speedKmS) / tr.totalLen) % 1.0) * tr.totalLen;
+        // Binary search cumulative arc-length array for exact river segment (zero curve-cutting!)
+        const cum = tr.cumLen;
+        let lo = 0, hi = cum.length - 2;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (cum[mid] <= dist) lo = mid; else hi = mid - 1;
+        }
+        const segLen = cum[lo + 1] - cum[lo];
+        const f = segLen > 1e-6 ? (dist - cum[lo]) / segLen : 0;
+        const p0 = tr.pts3d[lo], p1 = tr.pts3d[lo + 1];
+        fp.mesh.position.set(
+          p0.x + (p1.x - p0.x) * f,
+          p0.y + (p1.y - p0.y) * f,
+          p0.z + (p1.z - p0.z) * f
+        );
+        this._tmpDir.subVectors(p1, p0);
+        if (this._tmpDir.lengthSq() > 1e-8) {
+          this._tmpDir.normalize();
+          fp.mesh.quaternion.setFromUnitVectors(this._upVec, this._tmpDir);
+        }
       }
     }
 
