@@ -959,6 +959,106 @@ body.mode-simple .hud-top-left .expert-preset { display: none !important; }
   color: #cbd5e1;
   line-height: 1.5;
 }
+
+/* Accountability & Root-Cause Breakdown inside Story Section */
+.rootcause-box {
+  margin-top: 1.5rem;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(239, 68, 68, 0.05));
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 12px;
+  padding: 1.15rem 1.3rem;
+}
+.rootcause-box h3 {
+  margin: 0 0 0.45rem;
+  font-size: 1.06rem;
+  color: #fde68a;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.rootcause-box .rc-lead {
+  margin: 0 0 0.9rem;
+  font-size: 0.87rem;
+  color: #cbd5e1;
+}
+.mistakes-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+.mistake-card {
+  background: rgba(8, 13, 21, 0.78);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  padding: 0.8rem 0.95rem;
+}
+.mistake-card h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.88rem;
+  color: #fcd34d;
+}
+.mistake-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+  line-height: 1.48;
+}
+.blame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(265px, 1fr));
+  gap: 0.9rem;
+  margin-top: 0.75rem;
+}
+.blame-card {
+  background: #0b121e;
+  border: 1px solid #2b3c55;
+  border-radius: 10px;
+  padding: 0.95rem 1.05rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.blame-card-hdr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.blame-card h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #f8fafc;
+}
+.blame-role {
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.14rem 0.48rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.blame-role.primary { background: rgba(239, 68, 68, 0.16); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.42); }
+.blame-role.ops { background: rgba(245, 158, 11, 0.16); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.42); }
+.blame-role.reg { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.42); }
+.blame-role.sys { background: rgba(168, 85, 247, 0.16); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.42); }
+.blame-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+  line-height: 1.48;
+}
+.blame-defense {
+  font-size: 0.79rem;
+  color: #93a7be;
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
+  padding-top: 0.45rem;
+  margin-top: auto;
+}
+.blame-defense strong { color: #93c5fd; }
+
 .story-sources {
   margin-top: 1rem;
   font-size: 0.77rem;
