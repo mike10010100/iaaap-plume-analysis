@@ -192,23 +192,28 @@ export class Plume3DObservatory {
     const N_C = 700, N_10 = 850, N_25 = 850;
     const N = N_C + N_10 + N_25;
     const regimes = new Uint8Array(N);
+    const isBallistic = new Uint8Array(N);
     const vs = new Float32Array(N);
     const pStick = new Float32Array(N);
     const x = new Float32Array(N);
     const y = new Float32Array(N);
     const z = new Float32Array(N);
+    const zApex = new Float32Array(N);
+    const wFallBall = new Float32Array(N);
     const wBuoy = new Float32Array(N);
     const cdArr = new Float32Array(N);
     const sdArr = new Float32Array(N);
     const spdArr = new Float32Array(N);
     const active = new Uint8Array(N);
 
-    const bSin = Math.sin((248.0 * Math.PI) / 180.0);
-    const bCos = Math.cos((248.0 * Math.PI) / 180.0);
+    // 3-Camera verified Dual-Bunker geometry: 311 m along 208.6° SSW–NNE diagonal magazine loop
+    const bSin = Math.sin((208.6 * Math.PI) / 180.0);
+    const bCos = Math.cos((208.6 * Math.PI) / 180.0);
     for (let i = 0; i < N; i++) {
       active[i] = 1;
       const r = i < N_C ? 0 : (i < N_C + N_10 ? 1 : 2);
       regimes[i] = r;
+      if (i < 400) isBallistic[i] = 1; // Dark soil/gel ballistic ejecta jets peaking @ T+4.5s & collapsing to pad!
       if (r === 0) {
         vs[i] = 10 ** (Math.log10(0.035) + rand() * (Math.log10(0.30) - Math.log10(0.035)));
         pStick[i] = 1.0;
@@ -219,12 +224,17 @@ export class Plume3DObservatory {
         vs[i] = 10 ** (Math.log10(0.00005) + rand() * (Math.log10(0.0006) - Math.log10(0.00005)));
         pStick[i] = 0.06;
       }
-      const bunker = rand() < 0.35 ? -120.0 : 120.0;
-      x[i] = bunker * bSin + randn() * 45.0;
-      y[i] = bunker * bCos + randn() * 45.0;
-      z[i] = 5.0 + rand() * 30.0;
-      let wb = bunker < 0 ? (0.6 + rand() * 1.4) : (1.5 + rand() * 2.7);
-      if (r === 0) wb *= 0.65;
+      const bunker = rand() < 0.35 ? -155.5 : 155.5; // North small (-155.5m) vs South large (+155.5m)
+      x[i] = bunker * bSin + randn() * 35.0;
+      y[i] = bunker * bCos + randn() * 35.0;
+      z[i] = 5.0 + rand() * 17.0;
+      const apex = bunker < 0 ? (55.0 + rand() * 56.0) : (70.0 + rand() * 89.0); // 111m N / 159m S ballistic peak
+      zApex[i] = apex;
+      wFallBall[i] = apex / (5.5 + rand() * 4.0);
+      // Stabilized white smoke cap levels off flat at ~15-108m (N) / ~20-130m (S), +10% wispy thermal tail to 175m
+      let wb = bunker < 0 ? (0.8 + rand() * 6.0) : (1.2 + rand() * 7.4);
+      if (r === 0 && !isBallistic[i]) wb *= 0.65;
+      if (r >= 1 && bunker > 0 && rand() < 0.10) wb = 8.6 + rand() * 3.6;
       wBuoy[i] = wb;
       const dth = (randn() * 5.5 * Math.PI) / 180.0;
       cdArr[i] = Math.cos(dth);
@@ -278,7 +288,7 @@ export class Plume3DObservatory {
     const tEnd = this.maxSec || 18000;
     const L2_SPATIAL = 30000.0 * 30000.0; // 30 km smooth IDW kernel across the 192 km HRRR spatial network
     while (tCur < tEnd) {
-      const dt = tCur < 120 ? 5.0 : 30.0;
+      const dt = tCur < 30 ? 2.5 : (tCur < 120 ? 5.0 : 30.0);
       tCur += dt;
       const tMin = tCur / 60.0;
       const idxLo = Math.min(Math.floor(tMin / 10.0), nT - 2);
@@ -295,7 +305,7 @@ export class Plume3DObservatory {
       const conv = Math.min(1.0, (tCur / 3600.0) / 2.0);
       const sigH = Math.sqrt(2.0 * (16.0 + 36.0 * conv) * dt);
       const kzBase = 3.2 + 14.0 * conv;
-      const buoyDecay = tCur <= 180 ? Math.exp(-tCur / 45.0) : 0.0;
+      const buoyDecay = tCur <= 90 ? Math.exp(-tCur / 14.0) : 0.0;
 
       for (let i = 0; i < N; i++) {
         if (!active[i]) continue;
@@ -324,9 +334,21 @@ export class Plume3DObservatory {
         const ur = spdArr[i] * (um * cdArr[i] + vm * sdArr[i]);
         const vr = spdArr[i] * (-um * sdArr[i] + vm * cdArr[i]);
         const kz = kzBase * Math.max(0.15, Math.min(1.0, 1.0 - 0.7 * (za / 1075.0) ** 2));
-        x[i] = xi + ur * dt + randn() * sigH;
-        y[i] = yi + vr * dt + randn() * sigH;
-        let zn = za + (wBuoy[i] * buoyDecay - vs[i]) * dt + randn() * Math.sqrt(2.0 * kz * dt);
+        let uEff = ur, vEff = vr, vzPart = wBuoy[i] * buoyDecay - vs[i];
+        let zNoise = randn() * Math.sqrt(2.0 * kz * dt);
+        if (isBallistic[i]) {
+          if (tCur <= 5.0) {
+            vzPart = (zApex[i] - 12.0) / 5.0;
+            uEff = ur * 0.25; vEff = vr * 0.25;
+          } else {
+            vzPart = -wFallBall[i];
+            uEff = ur * 0.35; vEff = vr * 0.35;
+          }
+          zNoise = randn() * 2.0;
+        }
+        x[i] = xi + uEff * dt + randn() * sigH;
+        y[i] = yi + vEff * dt + randn() * sigH;
+        let zn = za + vzPart * dt + zNoise;
         if (zn > pblLoc) zn = Math.max(-50.0, Math.min(1075.0, pblLoc - (zn - pblLoc) * 0.85));
         if (zn <= 0.0) {
           if (rand() < pStick[i]) {
@@ -338,7 +360,8 @@ export class Plume3DObservatory {
         }
         z[i] = zn;
       }
-      if (kfSet.has(tCur)) snap(pblRef);
+      const tInt = Math.round(tCur);
+      if (Math.abs(tCur - tInt) < 1e-6 && kfSet.has(tInt)) snap(pblRef);
     }
 
     // Measure airborne fine-plume centroid shift vs. initial 15Z forecast at T+4h (14,400s, capturing far-field NE Missouri curl!)
@@ -545,36 +568,67 @@ export class Plume3DObservatory {
     addRing(8.047, 0xff4757);
     addRing(32.187, 0xffaa33);
 
-    // 3. Stereo Origin Beacon + Dual-Camera 95% Error Ellipse (340m x 220m)
+    // 3. 3-Camera Triangulated Origin Beacon + Tightened ±244×46 m Error Ellipse + Dual Bunkers (311 m @ 209°)!
     const originSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.28, 20, 20),
+      new THREE.SphereGeometry(0.26, 20, 20),
       new THREE.MeshBasicMaterial({ color: 0xff2244 })
     );
     originSphere.position.set(0, 0.25, 0);
     originSphere.userData = {
       type: 'origin',
-      title: 'Stereo-Triangulated Detonation Zone',
-      body: `<div style="margin-bottom:5px"><span class="tag-live">Video-Measured</span></div>` +
-            `<b>Coordinates:</b> ${s.origin.lat.toFixed(4)}°N, ${s.origin.lon.toFixed(4)}°W (±250 m)<br>` +
-            `<b>Stereo Baseline:</b> 46.3° (KWQC + KCRG/AP)<br>` +
-            `<b>Dual-Bunker Separation:</b> ~239 m (176–320 m)<br>` +
-            `<b>Event Time:</b> 2026-11-25 15:00 UTC (9:00 AM CST)<br>` +
-            `<b>Inventory:</b> ~9,500 lb lead azide (~3,050 kg elemental Pb)`
+      title: '3-Camera Triangulated Detonation Zone',
+      body: `<div style="margin-bottom:5px"><span class="tag-live">3-Camera Video-Measured</span></div>` +
+            `<b>Coordinates:</b> ${s.origin.lat.toFixed(4)}°N, ${s.origin.lon.toFixed(4)}°W (±244×46 m, 4.9× tighter than 2-cam)<br>` +
+            `<b>Triangulation Baseline:</b> 64.6° max (KWQC + KCRG/AP + Wilson Drone)<br>` +
+            `<b>Dual-Bunker Vector:</b> 311 m @ 209° SSW–NNE (fired 33 ms apart)<br>` +
+            `<b>Ballistic Collapse (Cam 3):</b> Dark debris peaks 111–159 m @ T+4.4s → collapses to pad; white cap stabilizes flat at ~100–130 m<br>` +
+            `<b>Event Time:</b> 2026-11-25 15:00 UTC (9:00 AM CST) · ~3,050 kg Pb`
     };
     this.sightlineGroup.add(originSphere);
     this.pickables.push(originSphere);
 
+    // Individual North & South Bunker beacons (311 m @ 208.6° diagonal loop)
+    if (s.bunkers) {
+      for (const [key, b, col] of [
+        ['north', s.bunkers.north, 0x4ade80],
+        ['south', s.bunkers.south, 0xf472b6],
+      ]) {
+        const bm = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 14), new THREE.MeshBasicMaterial({ color: col }));
+        bm.position.set(b.x_km, 0.22, -b.y_km);
+        bm.userData = {
+          type: 'origin',
+          title: b.label,
+          body: `<div style="margin-bottom:5px"><span class="tag-live">3-Camera Resolved Bunker</span></div>` +
+                `<b>Coords:</b> ${b.lat.toFixed(4)}°N, ${b.lon.toFixed(4)}°W<br>` +
+                (key === 'north'
+                  ? `<b>Cam 3 Optics:</b> Fires T+33 ms · Ballistic peak 111 m → stabilized white cap ~108 m`
+                  : `<b>Cam 3 Optics:</b> Fires T+0 ms (condensation flash) · Ballistic peak 159 m → stabilized white cap ~130 m`)
+        };
+        this.sightlineGroup.add(bm);
+        this.pickables.push(bm);
+      }
+    }
+
     const ellPts = [];
-    const rot = (135 * Math.PI) / 180;
+    const rot = (93.7 * Math.PI) / 180;
     for (let i = 0; i <= 64; i++) {
       const th = (i / 64) * Math.PI * 2;
-      const dN = 0.34 * Math.cos(th) * Math.cos(rot) - 0.22 * Math.sin(th) * Math.sin(rot);
-      const dE = 0.34 * Math.cos(th) * Math.sin(rot) + 0.22 * Math.sin(th) * Math.cos(rot);
+      const dN = 0.244 * Math.cos(th) * Math.cos(rot) - 0.046 * Math.sin(th) * Math.sin(rot);
+      const dE = 0.244 * Math.cos(th) * Math.sin(rot) + 0.046 * Math.sin(th) * Math.cos(rot);
       ellPts.push(new THREE.Vector3(dE, 0.14, -dN));
     }
     this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ellPts), new THREE.LineBasicMaterial({ color: 0xffff00 })));
 
-    // 4. Camera 1 (KWQC), FAA Tower T3, Camera 2 (KCRG/AP) + 3D Sightlines!
+    // 4.0 NM FAA TFR Ring (FDC 6/9186 centered at 40.7950N, -91.2481W)
+    const tfrCenter = this.ll2xz(40.79500, -91.24806);
+    const tfrPts = [];
+    for (let i = 0; i <= 96; i++) {
+      const a = (i / 96) * Math.PI * 2;
+      tfrPts.push(new THREE.Vector3(tfrCenter.x + Math.cos(a) * 7.408, 0.09, tfrCenter.z + Math.sin(a) * 7.408));
+    }
+    this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tfrPts), new THREE.LineBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.45 })));
+
+    // 4. Camera 1 (KWQC), FAA Tower T3, Camera 2 (KCRG/AP), Camera 3 (Wilson Drone) + 3D Sightlines!
     const addCam = (cam, color, name, desc) => {
       const x = cam.x_km, z = -cam.y_km;
       const mesh = new THREE.Mesh(
@@ -600,7 +654,51 @@ export class Plume3DObservatory {
 
     addCam(s.cam2_kcrg, 0xff8833, 'Cam 2: KCRG/AP (9856 202nd)',
       `<b>Site:</b> ${s.cam2_kcrg.site}<br><b>Bearing:</b> ${s.cam2_kcrg.bearing_deg}° ESE | Range: ${s.cam2_kcrg.dist_km} km<br>` +
-      `<b>Tracked Upper Puff:</b> ${s.cam2_kcrg.v_true_ms} m/s (R²=${s.cam2_kcrg.r2}), rising ${s.cam2_kcrg.h_top_t35_m}→${s.cam2_kcrg.h_top_t51_m} m AGL`);
+      `<b>Tracked Upper Puff:</b> ${s.cam2_kcrg.v_true_ms} m/s (R²=${s.cam2_kcrg.r2})`);
+
+    // Cam 3: James Wilson Aerial Drone (@nmjameswilson) hovering at 101 m AGL on 80th St!
+    if (s.cam3_wilson) {
+      const c3 = s.cam3_wilson;
+      const x3 = c3.x_km, z3 = -c3.y_km;
+      this.cam3Mesh = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.34, 0),
+        new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x22c55e, emissiveIntensity: 0.65 })
+      );
+      this.cam3Mesh.position.set(x3, 1.2, z3);
+      this.cam3Mesh.userData = {
+        type: 'camera',
+        title: 'Cam 3: Wilson Drone (@nmjameswilson)',
+        body: `<div style="margin-bottom:5px"><span class="tag-live">Aerial Drone · 6-Landmark Calibrated</span></div>` +
+              `<b>Hover Pos:</b> ${c3.lat.toFixed(4)}°N, ${c3.lon.toFixed(4)}°W @ ${c3.alt_agl_m.toFixed(0)} m (${c3.alt_agl_ft} ft) AGL<br>` +
+              `<b>Position:</b> ${c3.site}<br>` +
+              `<b>Dual-Bunker Rays:</b> ${c3.bearing_north_bunker_deg}° N / ${c3.bearing_south_bunker_deg}° S (range ${c3.dist_km} km)<br>` +
+              `<b>Key Physics:</b> 33 ms simultaneous fire · 159 m ballistic debris collapse → flat ~100–130 m white cap · S-drift 2.75→4.35 m/s (R²=0.980)`
+      };
+      this.sightlineGroup.add(this.cam3Mesh);
+      this.pickables.push(this.cam3Mesh);
+
+      this.cam3Stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.025, 0.025, 1.0, 8),
+        new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.55 })
+      );
+      this.cam3Stem.position.set(x3, 0.5, z3);
+      this.sightlineGroup.add(this.cam3Stem);
+
+      const bn = s.bunkers?.north || { x_km: 0, y_km: 0 };
+      const bs = s.bunkers?.south || { x_km: 0, y_km: 0 };
+      const mkRay = (tx, tz, col) => {
+        const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x3, 1.2, z3), new THREE.Vector3(tx, 0.22, tz)]);
+        const ln = new THREE.Line(g, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.85 }));
+        this.sightlineGroup.add(ln);
+        return ln;
+      };
+      this.cam3RayN = mkRay(bn.x_km, -bn.y_km, 0x4ade80);
+      this.cam3RayS = mkRay(bs.x_km, -bs.y_km, 0xf472b6);
+
+      this.cam3Label = this._makeSpriteLabel('Cam 3: Wilson Drone (331 ft)', '#4ade80', 'rgba(6,22,12,0.9)', 22);
+      this.cam3Label.position.set(x3, 2.2, z3);
+      this.sightlineGroup.add(this.cam3Label);
+    }
 
     // 3D FAA Tower T3 (actual 71.6 m height scaled by vertExag!)
     const t3x = s.tower_t3.x_km, t3z = -s.tower_t3.y_km;
@@ -1006,13 +1104,29 @@ export class Plume3DObservatory {
       pos.needsUpdate = true;
       geo.computeVertexNormals();
     }
-    // Scale Tower T3 (71.6 m = 0.0716 km)
+    // Scale Tower T3 (71.6 m = 0.0716 km) & Cam 3 Wilson Drone altitude (100.9 m = 0.1009 km)
     if (this.towerT3Mesh) {
       const hT3 = 0.0716 * exag;
       const baseT3 = this.terrainY(this.staticData.tower_t3.x_km, -this.staticData.tower_t3.y_km);
       this.towerT3Mesh.scale.set(1, hT3, 1);
       this.towerT3Mesh.position.y = baseT3 + hT3 / 2;
       this.towerT3Label.position.y = baseT3 + hT3 + 0.65;
+    }
+    if (this.cam3Mesh && this.staticData.cam3_wilson) {
+      const c3 = this.staticData.cam3_wilson;
+      const hC3 = (c3.alt_agl_m / 1000.0) * exag;
+      const baseC3 = this.terrainY(c3.x_km, -c3.y_km);
+      const yTop = baseC3 + hC3;
+      this.cam3Mesh.position.y = yTop;
+      this.cam3Stem.scale.set(1, Math.max(0.05, hC3), 1);
+      this.cam3Stem.position.y = baseC3 + hC3 / 2;
+      this.cam3Label.position.y = yTop + 0.85;
+      for (const ray of [this.cam3RayN, this.cam3RayS]) {
+        if (!ray) continue;
+        const pos = ray.geometry.attributes.position;
+        pos.setY(0, yTop);
+        pos.needsUpdate = true;
+      }
     }
     // Update inversion cap height (1.075 km)
     if (this.invMesh) {
@@ -1133,8 +1247,15 @@ export class Plume3DObservatory {
       // Exact KCRG/AP Cam 2 viewpoint at 9856 202nd Ave looking ESE!
       const c2 = s.cam2_kcrg;
       this.cameraPosGoal = new THREE.Vector3(c2.x_km, this.terrainY(c2.x_km, -c2.y_km) + 0.35, -c2.y_km);
-      this.cameraTargetGoal = new THREE.Vector3(0, 0.22 * this.vertExag, 0);
-      this.simSec = 45; this.updateParticlesAtTime(this.simSec);
+      this.cameraTargetGoal = new THREE.Vector3(0, 0.14 * this.vertExag, 0);
+      this.simSec = 35; this.updateParticlesAtTime(this.simSec);
+    } else if (preset === 'wilson' && s.cam3_wilson) {
+      // Exact James Wilson Cam 3 Aerial Drone viewpoint (101 m AGL on 80th St, looking due East into both bunkers!)
+      const c3 = s.cam3_wilson;
+      const yDrone = this.terrainY(c3.x_km, -c3.y_km) + (c3.alt_agl_m / 1000.0) * this.vertExag;
+      this.cameraPosGoal = new THREE.Vector3(c3.x_km, Math.max(0.45, yDrone), -c3.y_km);
+      this.cameraTargetGoal = new THREE.Vector3(0, 0.085 * this.vertExag, 0);
+      this.simSec = 5; this.updateParticlesAtTime(this.simSec);
     } else if (preset === 'shear') {
       // Dramatic side cross-section showing vertical wind shear & inversion cap!
       this.cameraPosGoal = new THREE.Vector3(-8, 6.5, 44);

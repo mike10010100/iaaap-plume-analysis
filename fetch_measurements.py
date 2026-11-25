@@ -43,8 +43,8 @@ LIVE_BUNDLE_FILE = SITE_DATA_DIR / "live_telemetry.json"
 LOG_FILE = DATA_DIR / "updater.log"
 
 EVENT_DT = datetime.datetime(2026, 11, 25, 15, 0, 0, tzinfo=datetime.timezone.utc)
-ORIGIN_LAT = 40.8099
-ORIGIN_LON = -91.2668
+ORIGIN_LAT = 40.8090
+ORIGIN_LON = -91.2657
 ELEV_M = 215.0
 TOTAL_PB_KG = 3050.0
 USER_AGENT = "IAAAP-OSINT-Plume-Monitor/2.0 (https://github.com/mike10010100/iaaap-plume-analysis)"
@@ -52,14 +52,14 @@ USER_AGENT = "IAAAP-OSINT-Plume-Monitor/2.0 (https://github.com/mike10010100/iaa
 ASOS_STATIONS = ["BRL", "MPZ", "FSW", "EOK", "FFL", "AWG", "MQB", "GBG", "DVN", "IRK"]
 RWIS_STATIONS = {"RAGI4", "RARI4", "RBUI4", "RCLI4", "RMPI4", "ROUI4"}
 AQ_POINTS = [
-    ("IAAAP (Middletown)", 40.810, -91.267),
+    ("IAAAP (Middletown)", 40.809, -91.266),
     ("Denmark, IA",        40.737, -91.334),
     ("West Point, IA",     40.717, -91.454),
     ("Donnellson, IA",     40.641, -91.560),
     ("Kahoka, MO",         40.422, -91.722),
 ]
 SPATIAL_HRRR_NODES = [
-    ("IAAAP",      40.8099, -91.2668, 215.0),
+    ("IAAAP",      40.8090, -91.2657, 215.0),
     ("Kahoka",     40.4220, -91.7218, 212.0),
     ("Kirksville", 40.1948, -92.5832, 295.0),
     ("Ottumwa",    41.0200, -92.4113, 258.0),

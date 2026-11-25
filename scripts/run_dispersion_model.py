@@ -55,8 +55,8 @@ def main():
     # Blend surface-layer spatial anomaly from real ASOS stations (14:50-15:20Z)
     # Specifically, KBRL (43->223 @ 4.5), KMPZ (45->225 @ 3.3), KEOK (38->218 @ 3.3), KFSW (10->190 @ 4.6)
     stns = met['stations']
-    # Origin reference: geolocated NW/central IAAAP magazine sightline intersection (40.808, -91.265)
-    LAT0, LON0 = 40.808, -91.265
+    # Origin reference: 3-camera triangulated IAAAP magazine loop midpoint (40.8090N, -91.2657W, +/- 244x46m)
+    LAT0, LON0 = 40.8090, -91.2657
     M_PER_LAT = 111132.0
     M_PER_LON = 111320.0 * math.cos(math.radians(LAT0))
 
@@ -90,37 +90,46 @@ def main():
         np.full(N_PM25, 2, dtype=np.int8),
     ])
 
-    # Gravitational settling velocity v_s (m/s) using log-uniform aerodynamic distribution per regime
-    # (Lead-enriched particulate effective density ~3.5-5.0 g/cm3 increases settling slightly over pure silica!)
+    # Gravitational settling velocity v_s (m/s) using Cam 3 two-stage ballistic-collapse calibration:
+    # - 55% of Regime 0 is heavy ballistic ejecta (from 111-159m dark debris jets collapsing back onto pad within 10-15s!)
+    # - 45% of Regime 0 is airborne coarse dust (20-70 um, vs = 0.04-0.32 m/s) depositing in the near-field (<3 km)
+    n_ballistic = int(N_COARSE * 0.55)
+    vs_coarse = np.concatenate([
+        10**rng.uniform(np.log10(1.2), np.log10(4.5), n_ballistic),
+        10**rng.uniform(np.log10(0.035), np.log10(0.32), N_COARSE - n_ballistic),
+    ])
+    rng.shuffle(vs_coarse)
     vs = np.concatenate([
-        10**rng.uniform(np.log10(0.035), np.log10(0.32), N_COARSE),
+        vs_coarse,
         10**rng.uniform(np.log10(0.0012), np.log10(0.018), N_PM10),
         10**rng.uniform(np.log10(0.00004), np.log10(0.0006), N_PM25),
     ])
 
-    # Initial positions: Dual-bunker layout (separated by ~240m along WSW-ENE axis) + IAAAP source-location uncertainty ensemble!
-    # Also include 20% probability of slightly south-east origin inside central IAAAP (within ~1.5 km) to honestly capture
-    # the OSINT uncertainty in exact interior bunker coordinates!
-    bunker_choice = rng.choice([-120.0, 120.0], size=N, p=[0.35, 0.65]) # Plume 2 (West) was ~2x larger than Plume 1 (East)
-    # Bunker axis roughly perpendicular to 158 deg sightline (i.e. along 068/248 deg)
-    bx = bunker_choice * math.sin(math.radians(248.0))
-    by = bunker_choice * math.cos(math.radians(248.0))
-    # Positional uncertainty along sightline (158 deg: +/- 700m, clamped strictly inside IAAAP perimeter south of 40.820N!)
-    along_u = rng.normal(0.0, 650.0, N)
-    cross_u = rng.normal(0.0, 260.0, N)
-    x = bx + along_u * math.sin(math.radians(158.0)) + cross_u * math.sin(math.radians(248.0)) + rng.normal(0, 35.0, N)
-    y = by + along_u * math.cos(math.radians(158.0)) + cross_u * math.cos(math.radians(248.0)) + rng.normal(0, 35.0, N)
-    # Clamp y <= +1200 m (40.819N, strictly inside IAAAP northern perimeter south of Hwy 34 & Middletown)
-    y = np.minimum(y, 1200.0)
+    # Initial positions: 3-Camera verified Dual-Bunker layout (311 m separation along 208.6 deg SSW-NNE loop!)
+    # + tightened 3-camera origin uncertainty (+/- 244 m E-W along Cam 3 ray, +/- 46 m N-S cross-ray)
+    bunker_choice = rng.choice([-155.5, 155.5], size=N, p=[0.35, 0.65]) # North (small 35%) -> South (large 65%)
+    bx = bunker_choice * math.sin(math.radians(208.6))
+    by = bunker_choice * math.cos(math.radians(208.6))
+    along_u = rng.normal(0.0, 244.0, N)
+    cross_u = rng.normal(0.0, 46.0, N)
+    x = bx + along_u * math.sin(math.radians(93.7)) + cross_u * math.sin(math.radians(183.7)) + rng.normal(0, 30.0, N)
+    y = by + along_u * math.cos(math.radians(93.7)) + cross_u * math.cos(math.radians(183.7)) + rng.normal(0, 30.0, N)
+    y = np.minimum(y, 1000.0)
 
-    # Initial release height AGL calibrated directly to video plumes:
-    # Plume 1 (East): core 15-75m, Plume 2 (West): core 20-130m, buoyant tail up to ~220m (10% chance of 180-320m thermal wisps)
+    # Initial release height AGL calibrated directly to Cam 3 (Wilson Drone) two-stage ballistic-collapse optics:
+    # - Heavy dark ballistic debris jets peak at 111m (North) & 159m (South) at T+4.4s then collapse to ground by T+12-15s
+    # - Fine white smoke/vapor cap stabilizes FLAT at ~15-108m (North) & ~20-130m (South) through T+31s
+    # - Only a small ~10% wispy thermal tail reaches 130-185m (reconciling KCRG faint upper wisps at T+51s)
     z = np.where(bunker_choice < 0,
-                 rng.uniform(10.0, 85.0, N),
-                 rng.uniform(15.0, 145.0, N))
-    # Buoyant wispy tail for fine aerosols (5-15% lofted into 150-300m shear layer)
-    hi_tail = (regime >= 1) & (rng.random(N) < 0.20)
-    z[hi_tail] = rng.uniform(130.0, 290.0, hi_tail.sum())
+                 rng.uniform(15.0, 108.0, N),
+                 rng.uniform(20.0, 130.0, N))
+    # Ballistic ejecta starts near peak apex (60-159m) before falling rapidly back onto pad
+    is_ball = (regime == 0) & (vs > 0.8)
+    z[is_ball] = np.where(bunker_choice[is_ball] < 0,
+                          rng.uniform(40.0, 111.0, is_ball.sum()),
+                          rng.uniform(50.0, 159.0, is_ball.sum()))
+    hi_tail = (regime >= 1) & (rng.random(N) < 0.10)
+    z[hi_tail] = rng.uniform(130.0, 185.0, hi_tail.sum())
 
     # Ensemble synoptic/mesoscale wind-direction perturbation per sub-ensemble (50 realizations x 1200 particles)
     # Represents +/- 7 deg directional uncertainty & +/- 12% wind speed uncertainty across unmonitored rural terrain!

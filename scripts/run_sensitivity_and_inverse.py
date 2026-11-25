@@ -22,8 +22,8 @@ def main():
     # Molar mass Pb = 207.2, Pb(N3)2 = 291.24 -> Pb mass fraction = 71.14% -> ~3,066 kg (~3,050 kg) elemental Pb
     TOTAL_PB_KG = 3050.0
 
-    # Stereo-triangulated origin
-    LAT0, LON0 = 40.8099, -91.2668
+    # 3-Camera triangulated origin (KWQC + KCRG/AP + Wilson Drone: +/- 244m x +/- 46m)
+    LAT0, LON0 = 40.8090, -91.2657
     M_PER_LAT = 111132.0
     M_PER_LON = 111320.0 * math.cos(math.radians(LAT0))
 
@@ -119,12 +119,16 @@ def main():
                   10**rng.uniform(np.log10(0.0010), np.log10(0.015), N))
     p_stick = np.where(is_pm25, 0.06, 0.30)
 
-    # Dual-bunker stereo-constrained initial positions (+/- 240m separation + +/- 250m stereo ellipse!)
-    bunker = rng.choice([-120.0, 120.0], size=N, p=[0.35, 0.65])
-    x = bunker * math.sin(math.radians(248.0)) + rng.normal(0, 220.0, N)
-    y = bunker * math.cos(math.radians(248.0)) + rng.normal(0, 200.0, N)
-    # Initial heights calibrated to BOTH KWQC (dense core 20-140m) AND KCRG/AP (buoyant upper rise to 200-250m by T+50s!)
-    z = np.where(bunker < 0, rng.uniform(15.0, 110.0, N), rng.uniform(25.0, 235.0, N))
+    # 3-Camera verified Dual-Bunker geometry (311 m along 208.6 deg SSW-NNE) + tightened +/- 244 x 46 m ellipse!
+    bunker = rng.choice([-155.5, 155.5], size=N, p=[0.35, 0.65])
+    along_u = rng.normal(0.0, 244.0, N)
+    cross_u = rng.normal(0.0, 46.0, N)
+    x = bunker * math.sin(math.radians(208.6)) + along_u * math.sin(math.radians(93.7)) + cross_u * math.sin(math.radians(183.7))
+    y = bunker * math.cos(math.radians(208.6)) + along_u * math.cos(math.radians(93.7)) + cross_u * math.cos(math.radians(183.7))
+    # Initial heights calibrated to Cam 3 (Wilson Drone) stabilized white smoke cap (North 15-108m, South 20-130m + 10% wispy tail 130-185m)
+    z = np.where(bunker < 0, rng.uniform(15.0, 108.0, N), rng.uniform(20.0, 130.0, N))
+    hi_tail = rng.random(N) < 0.10
+    z[hi_tail] = rng.uniform(130.0, 185.0, hi_tail.sum())
 
     # 80 meteorological realizations (+/- 6 deg wind uncertainty, +/- 10% speed)
     n_ens = 80

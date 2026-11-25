@@ -468,32 +468,44 @@ def make_fig6_and_upgrade_html():
     ImageOverlay(grid_to_uri(log_c15, -1.3, 1.5, 'plasma', 0.68), bounds=b_reg,
                  name='Hypothetical 0.1% Pb Scenario (15-min peak µg/m³)', show=False).add_to(m)
 
-    fg_stereo = folium.FeatureGroup(name='Dual-Camera Stereo Triangulation & Radii', show=True)
+    fg_stereo = folium.FeatureGroup(name='3-Camera Triangulation (KWQC + KCRG + Drone) & Radii', show=True)
     folium.GeoJson(iaaap_poly, style_function=lambda x: {'color':'#ffdd44','weight':2,'fillOpacity':0.07,'dashArray':'6,4'},
                    tooltip='Iowa Army Ammunition Plant (IAAAP)').add_to(fg_stereo)
     folium.Circle([LAT0, LON0], radius=5*1609.34, color='#ff4466', weight=1.8, dash_array='6,4', fill=False, tooltip='5-Mile Radius').add_to(fg_stereo)
     folium.Circle([LAT0, LON0], radius=20*1609.34, color='#ffaa44', weight=1.4, dash_array='8,6', fill=False, tooltip='20-Mile Radius').add_to(fg_stereo)
     folium.Circle([LAT0, LON0], radius=50*1609.34, color='#64748b', weight=1.2, dash_array='6,8', fill=False, tooltip='50-Mile Radius').add_to(fg_stereo)
-    # Dual-Camera Stereo Error Ellipse (~340m x 220m)
+    # 4.0 NM FAA TFR (FDC 6/9186) centered at 40.7950N, -91.2481W
+    folium.Circle([40.79500, -91.24806], radius=4*1852.0, color='#22c55e', weight=1.3, dash_array='4,6', fill=False,
+                  tooltip='FAA TFR FDC 6/9186 (4.0 NM radius, SFC–4,000 ft MSL)').add_to(fg_stereo)
+    # 3-Camera Error Ellipse (±244m E-W × ±46m N-S, 4.9x tighter area than 2-camera!)
     th = np.linspace(0, 2*np.pi, 60)
-    rad = math.radians(135.0)
-    dN = 340*np.cos(th)*math.cos(rad) - 220*np.sin(th)*math.sin(rad)
-    dE = 340*np.cos(th)*math.sin(rad) + 220*np.sin(th)*math.cos(rad)
+    rad = math.radians(93.7)
+    dN = 244*np.cos(th)*math.cos(rad) - 46*np.sin(th)*math.sin(rad)
+    dE = 244*np.cos(th)*math.sin(rad) + 46*np.sin(th)*math.cos(rad)
     ell_pts = [[LAT0 + float(dn)/M_PER_LAT, LON0 + float(de)/M_PER_LON] for dn, de in zip(dN, dE)]
-    folium.Polygon(ell_pts, color='#ffff00', weight=2.5, fill=True, fill_color='#ffff00', fill_opacity=0.2,
-                   tooltip='Dual-Camera Stereo 95% Origin Zone (±250m, 5.8x tighter than single camera)').add_to(fg_stereo)
+    folium.Polygon(ell_pts, color='#ffff00', weight=2.5, fill=True, fill_color='#ffff00', fill_opacity=0.22,
+                   tooltip='3-Camera Triangulated Origin Zone (±244×46 m, 4.9× tighter than 2-cam)').add_to(fg_stereo)
 
-    c1 = stereo['cam1_kwqc']; c2 = stereo['cam2_kcrg_ap']
+    c1 = stereo['cam1_kwqc']; c2 = stereo['cam2_kcrg_ap']; c3 = stereo['cam3_wilson_drone']
+    bn = stereo['triangulated_origin']['bunker_north']; bs = stereo['triangulated_origin']['bunker_south']
     folium.Marker([LAT0, LON0], icon=folium.Icon(color='red', icon='fire', prefix='fa'),
-                  popup=f'<b>Stereo-Triangulated Detonation Zone</b><br>{LAT0:.4f}°N, {LON0:.4f}°W (±250 m)<br>46.3° Stereo Baseline (KWQC + KCRG/AP)').add_to(fg_stereo)
+                  popup=f'<b>3-Camera Triangulated Detonation Zone</b><br>{LAT0:.4f}°N, {LON0:.4f}°W (±244×46 m)<br>64.6° Max Baseline (KWQC + KCRG/AP + Wilson Drone)<br>Dual Bunkers: 311 m @ 209° SSW–NNE (fired 33 ms apart)').add_to(fg_stereo)
+    folium.CircleMarker([bn['lat'], bn['lon']], radius=4.5, color='#22c55e', weight=2, fill=True, fill_color='#86efac', fill_opacity=0.95,
+                        tooltip='North Bunker (Smaller ~35% · 111m ballistic peak, 109m white cap)').add_to(fg_stereo)
+    folium.CircleMarker([bs['lat'], bs['lon']], radius=5.5, color='#e879f9', weight=2, fill=True, fill_color='#f0abfc', fill_opacity=0.95,
+                        tooltip='South Bunker (Larger ~65% · 159m ballistic peak, 130m white cap)').add_to(fg_stereo)
     folium.Marker([c1['lat'], c1['lon']], icon=folium.Icon(color='blue', icon='video-camera', prefix='fa'),
                   popup='<b>Camera 1: KWQC-TV6</b><br>190th Ave, 1 mi ENE Danville<br>Bearing: 158.3° SSE across FAA Tower T3<br>Acoustic Range: 6.23 ± 0.5 km').add_to(fg_stereo)
     folium.Marker([c2['lat'], c2['lon']], icon=folium.Icon(color='orange', icon='video-camera', prefix='fa'),
-                  popup='<b>Camera 2: KCRG-TV9 / AP</b><br>9856 202nd Ave, Danville (blue 911 sign)<br>Bearing: 112.0° ESE | Range: 4.75 km<br>Optical Plume: 8.7 m/s rising 208→252 m').add_to(fg_stereo)
+                  popup='<b>Camera 2: KCRG-TV9 / AP</b><br>9856 202nd Ave, Danville (blue 911 sign)<br>Bearing: 112.0° ESE | Range: 4.87 km<br>Optical Plume: 8.7 m/s').add_to(fg_stereo)
+    folium.Marker([c3['lat'], c3['lon']], icon=folium.Icon(color='green', icon='plane', prefix='fa'),
+                  popup=f'<b>Camera 3: Wilson Drone (@nmjameswilson)</b><br>{c3["site"]}<br>Alt: {c3["alt_agl_m"]:.0f} m ({c3["alt_agl_ft"]} ft) AGL | Bearing: 92.2° N / 95.1° S<br>Two-stage ballistic collapse (159m → 130m flat white cap) &amp; S-drift R²=0.980').add_to(fg_stereo)
     folium.Marker([40.84110, -91.28298], icon=folium.Icon(color='purple', icon='signal', prefix='fa'),
                   popup='<b>FAA Tower T3 (OAS 19-002048)</b><br>235 ft (71.6 m) AGL — Optical Calibration Ref').add_to(fg_stereo)
-    folium.PolyLine([[c1['lat'], c1['lon']], [40.84110, -91.28298], [LAT0, LON0]], color='#00e5ff', weight=2.5, dash_array='5,5', tooltip='KWQC Sightline (158.3° SSE)').add_to(fg_stereo)
-    folium.PolyLine([[c2['lat'], c2['lon']], [LAT0, LON0]], color='#ff8833', weight=2.5, dash_array='5,5', tooltip='KCRG/AP Sightline (112.0° ESE)').add_to(fg_stereo)
+    folium.PolyLine([[c1['lat'], c1['lon']], [40.84110, -91.28298], [LAT0, LON0]], color='#00e5ff', weight=2.5, dash_array='5,5', tooltip='Cam 1 KWQC Sightline (158.3° SSE)').add_to(fg_stereo)
+    folium.PolyLine([[c2['lat'], c2['lon']], [LAT0, LON0]], color='#ff8833', weight=2.5, dash_array='5,5', tooltip='Cam 2 KCRG/AP Sightline (112.0° ESE)').add_to(fg_stereo)
+    folium.PolyLine([[c3['lat'], c3['lon']], [bn['lat'], bn['lon']]], color='#22c55e', weight=2.2, dash_array='5,5', tooltip='Cam 3 Drone → North Bunker (92.2° E)').add_to(fg_stereo)
+    folium.PolyLine([[c3['lat'], c3['lon']], [bs['lat'], bs['lon']]], color='#e879f9', weight=2.2, dash_array='5,5', tooltip='Cam 3 Drone → South Bunker (95.1° E)').add_to(fg_stereo)
     fg_stereo.add_to(m)
 
     # EPA Air Monitors + highlighted live Xact AS01..AS04 telemetry popups!
@@ -525,11 +537,12 @@ def make_fig6_and_upgrade_html():
     legend_html = """
     <div style="position: fixed; bottom: 25px; left: 25px; z-index: 9999; background: rgba(14,17,23,0.92);
                 color: #eee; padding: 11px 13px; border-radius: 8px; border: 1px solid #555; font-family: sans-serif; font-size: 11.5px; max-width: 310px;">
-      <div style="font-weight: bold; font-size: 12.5px; color: #ffdd44; margin-bottom: 5px;">IAAAP Stereo Origin &amp; 5-Hr Dispersion Path (Nov 25, 2026)</div>
-      <div><b>Stereo Origin:</b> 40.810°N, -91.267°W (±250 m, 46.3° baseline)</div>
-      <div><b>Simulated Path (0–5 hr):</b> SW–WSW past Denmark, West Point, Donnellson, Kahoka &amp; Kirksville (fades by dilution)</div>
-      <div><b>Live EPA Xact:</b> Near-zero/baseline at AS01–04 ⇒ constrains airborne Pb escape to <b>≲ 0.013%</b> (&gt;99.95% contained).</div>
-      <div style="margin-top:4px;color:#93c5fd">Use top-right layer icon to switch Satellite, Deposition, or 0.1% Pb contours.</div>
+      <div style="font-weight: bold; font-size: 12.5px; color: #ffdd44; margin-bottom: 5px;">IAAAP 3-Camera Origin &amp; 5-Hr Dispersion Path (Nov 25, 2026)</div>
+      <div><b>3-Camera Origin:</b> 40.809°N, -91.266°W (±244×46 m, 64.6° baseline) · Bunkers 311 m @ 209°</div>
+      <div><b>Cam 3 Physics:</b> Two-stage ballistic collapse (159 m → flat ~100–130 m white smoke cap)</div>
+      <div><b>Simulated Path (0–5 hr):</b> SW–WSW past Denmark, West Point, Donnellson, Kahoka &amp; Kirksville</div>
+      <div><b>Live EPA Xact:</b> Near-zero/baseline at AS01–04 ⇒ airborne Pb escape constrained to <b>&gt;99.95% contained</b>.</div>
+      <div style="margin-top:4px;color:#93c5fd">Use top-right layer icon to toggle Satellite, Deposition, or 0.1% Pb contours.</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))

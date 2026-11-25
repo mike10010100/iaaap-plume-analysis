@@ -22,8 +22,8 @@ import matplotlib.pyplot as plt
 REPO = '/home/mike10010100/git/iaaap-plume-analysis'
 SCRATCH = '/home/mike10010100/.gemini/antigravity-cli/scratch/iaaap-plume-analysis'
 
-# Exact 3D world bounds centered at stereo-triangulated origin (40.8099N, -91.2668W)
-LAT0, LON0 = 40.8099, -91.2668
+# Exact 3D world bounds centered at 3-camera triangulated origin (40.8090N, -91.2657W)
+LAT0, LON0 = 40.8090, -91.2657
 M_PER_LAT = 111132.0
 M_PER_LON = 111320.0 * math.cos(math.radians(LAT0))
 
@@ -211,6 +211,11 @@ def build_3d_particles():
     N_C, N_10, N_25 = 700, 850, 850
     N = N_C + N_10 + N_25
     regime = np.concatenate([np.zeros(N_C, dtype=np.int8), np.ones(N_10, dtype=np.int8), np.full(N_25, 2, dtype=np.int8)])
+    # Cam 3 (Wilson Drone) two-stage ballistic-collapse physics:
+    # First 400 coarse particles represent dark soil/gel ballistic jets peaking at 111m (N) / 159m (S) at T+4.5s
+    # then collapsing straight back onto the IAAAP pad by T+10-15s!
+    is_ballistic = np.zeros(N, dtype=np.bool_)
+    is_ballistic[:400] = True
     vs = np.concatenate([
         10**rng.uniform(np.log10(0.035), np.log10(0.30), N_C),
         10**rng.uniform(np.log10(0.0012), np.log10(0.016), N_10),
@@ -218,21 +223,28 @@ def build_3d_particles():
     ])
     p_stick = np.where(regime == 0, 1.0, np.where(regime == 1, 0.30, 0.06))
 
-    # Dual bunkers separated by 240 m along 248 deg axis!
-    bunker = rng.choice([-120.0, 120.0], size=N, p=[0.35, 0.65])
-    x = bunker * math.sin(math.radians(248.0)) + rng.normal(0.0, 45.0, N)
-    y = bunker * math.cos(math.radians(248.0)) + rng.normal(0.0, 45.0, N)
-    # Initial explosive rise starts near ground (5-35m) and rises buoyantly over first 60s to match BOTH KWQC & KCRG/AP!
-    z = rng.uniform(5.0, 35.0, N)
-    # Target buoyant rise speed (m/s) for first 55s: Plume 1 -> ~1.5 m/s (to ~80m), Plume 2 -> ~2.6-3.8 m/s (to 140-250m!)
-    w_buoy = np.where(bunker < 0, rng.uniform(0.6, 2.0, N), rng.uniform(1.5, 4.2, N))
-    w_buoy = np.where(regime == 0, w_buoy * 0.65, w_buoy) # heavy dust rises less!
+    # 3-Camera verified Dual-Bunker layout: 311 m separation along 208.6 deg (SSW-NNE diagonal magazine loop!)
+    # North bunker (-155.5 m, smaller 35%) -> South bunker (+155.5 m, larger 65%), fired simultaneously (33 ms apart)
+    bunker = rng.choice([-155.5, 155.5], size=N, p=[0.35, 0.65])
+    x = bunker * math.sin(math.radians(208.6)) + rng.normal(0.0, 35.0, N)
+    y = bunker * math.cos(math.radians(208.6)) + rng.normal(0.0, 35.0, N)
+    z = rng.uniform(5.0, 22.0, N)
+
+    # Stage 1 ballistic apex (111m North, 159m South at T+4.5s) and rapid gravitational collapse speed (T+5..15s)
+    z_apex = np.where(bunker < 0, rng.uniform(55.0, 111.0, N), rng.uniform(70.0, 159.0, N))
+    w_fall_ball = z_apex / rng.uniform(5.5, 9.5, N)
+
+    # Stage 2 stabilized white smoke/vapor cap (levels off flat by T+25-30s at 15-108m N / 20-130m S + 10% wisps to 175m!)
+    w_buoy = np.where(bunker < 0, rng.uniform(0.8, 6.8, N), rng.uniform(1.2, 8.6, N))
+    w_buoy = np.where((regime == 0) & (~is_ballistic), w_buoy * 0.65, w_buoy)
+    hi_wisp = (regime >= 1) & (bunker > 0) & (rng.random(N) < 0.10)
+    w_buoy[hi_wisp] = rng.uniform(8.6, 12.2, hi_wisp.sum())
     dth_ens = np.radians(rng.normal(0.0, 5.5, N))
     spd_ens = rng.normal(1.0, 0.08, N)
 
-    # Dense early keyframes (seconds/minutes) + full 5-hour regional sweep (0 -> 18,000 s)!
+    # Dense early keyframes (0, 5, 10, 15, 20, 30s capturing exact Cam 3 ballistic peak & collapse!) + 5-hr regional sweep!
     kf_sec = [
-        0, 10, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 780, 900, 1080, 1200,
+        0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 780, 900, 1080, 1200,
         1500, 1800, 2100, 2400, 2700, 3000, 3300, 3600, 4200, 4800, 5400, 6000, 6600,
         7200, 7800, 8400, 9000, 9600, 10200, 10800, 11400, 12000, 12600, 13200, 13800, 14400,
         15300, 16200, 17100, 18000
@@ -242,7 +254,7 @@ def build_3d_particles():
     frames_pbl = []
 
     def snap(pbl_val):
-        # Pack as flat int16-friendly rounded lists: x_10m (meters/10), y_10m (meters/10), z_m (meters, -1 = deposited!)
+        # Pack as flat int16-friendly rounded lists: x_10m (meters/10), y_10m (meters/10), z_m (meters, 0 = deposited!)
         arr = np.empty(N * 3, dtype=np.int32)
         arr[0::3] = np.rint(x / 10.0).astype(np.int32)
         arr[1::3] = np.rint(y / 10.0).astype(np.int32)
@@ -253,11 +265,11 @@ def build_3d_particles():
     active = np.ones(N, dtype=np.bool_)
     snap(pbl_hr[0])
 
-    # Step dt=5s for first 120s (smooth early buoyant ascent!), then dt=15s up to 18,000s (5 hours)!
-    t_cur = 0
-    while t_cur < 18000:
-        dt = 5.0 if t_cur < 120 else 15.0
-        t_cur += int(dt)
+    # Step dt=2.5s for first 30s (resolving T+4.5s ballistic peak & T+12s collapse!), dt=5s to 120s, then dt=15s to 18,000s!
+    t_cur = 0.0
+    while t_cur < 18000.0:
+        dt = 2.5 if t_cur < 30.0 else (5.0 if t_cur < 120.0 else 15.0)
+        t_cur += dt
         t_hr = t_cur / 3600.0
         idx_a = np.where(active)[0]
         if len(idx_a) > 0:
@@ -276,10 +288,25 @@ def build_3d_particles():
             conv = min(1.0, t_hr / 2.0)
             Kh = 16.0 + 36.0 * conv
             Kz = (3.2 + 14.0 * conv) * np.clip(1.0 - 0.7*(za/1075.0)**2, 0.15, 1.0)
-            buoy_term = w_buoy[idx_a] * math.exp(-t_cur / 45.0) if t_cur <= 180 else 0.0
-            xn = xa + ur*dt + rng.normal(0.0, math.sqrt(2*Kh*dt), len(idx_a))
-            yn = ya + vr*dt + rng.normal(0.0, math.sqrt(2*Kh*dt), len(idx_a))
-            zn = za + (buoy_term - vs[idx_a])*dt + rng.normal(0.0, np.sqrt(2*Kz*dt))
+
+            ball_m = is_ballistic[idx_a]
+            if t_cur <= 5.0:
+                vz_part = np.where(ball_m, (z_apex[idx_a] - 12.0) / 5.0, w_buoy[idx_a] * math.exp(-t_cur / 14.0) - vs[idx_a])
+                # Ballistic ejecta experiences minimal horizontal wind drift during vertical ejection
+                u_eff = np.where(ball_m, ur * 0.25, ur)
+                v_eff = np.where(ball_m, vr * 0.25, vr)
+            elif t_cur <= 25.0:
+                vz_part = np.where(ball_m, -w_fall_ball[idx_a], w_buoy[idx_a] * math.exp(-t_cur / 14.0) - vs[idx_a])
+                u_eff = np.where(ball_m, ur * 0.35, ur)
+                v_eff = np.where(ball_m, vr * 0.35, vr)
+            else:
+                buoy_term = w_buoy[idx_a] * math.exp(-t_cur / 14.0) if t_cur <= 90.0 else 0.0
+                vz_part = np.where(ball_m, -w_fall_ball[idx_a], buoy_term - vs[idx_a])
+                u_eff, v_eff = ur, vr
+
+            xn = xa + u_eff*dt + rng.normal(0.0, math.sqrt(2*Kh*dt), len(idx_a))
+            yn = ya + v_eff*dt + rng.normal(0.0, math.sqrt(2*Kh*dt), len(idx_a))
+            zn = za + vz_part*dt + np.where(ball_m, rng.normal(0.0, 2.0, len(idx_a)), rng.normal(0.0, np.sqrt(2*Kz*dt)))
             abv = zn > pbl_c
             if np.any(abv):
                 zn = np.where(abv, pbl_c - (zn - pbl_c)*0.85, zn)
@@ -292,7 +319,8 @@ def build_3d_particles():
                     active[idx_a[st]] = False
                     zn[st] = 0.0
             x[idx_a], y[idx_a], z[idx_a] = xn, yn, zn
-        if t_cur in kf_set:
+        t_int = int(round(t_cur))
+        if abs(t_cur - t_int) < 1e-6 and t_int in kf_set:
             h_lo = min(int(t_cur/3600.0), len(hours_utc) - 2)
             hf = min(1.0, (t_cur/3600.0) - h_lo)
             snap(min(1075.0, max(285.0, (1 - hf)*pbl_hr[h_lo] + hf*pbl_hr[h_lo+1])))
@@ -336,14 +364,21 @@ def build_scene_static():
         if WX_MIN <= xk <= WX_MAX and WY_MIN <= yk <= WY_MAX:
             town_pts.append({**t, 'x_km': xk, 'y_km': yk})
 
-    c1 = stereo['cam1_kwqc']; c2 = stereo['cam2_kcrg_ap']
+    c1 = stereo['cam1_kwqc']; c2 = stereo['cam2_kcrg_ap']; c3 = stereo['cam3_wilson_drone']
+    tri = stereo['triangulated_origin']
+    bn = tri['bunker_north']; bs = tri['bunker_south']
     t3 = (40.84110, -91.28298)
     static = {
-        'origin': {'lat': LAT0, 'lon': LON0, 'elev_m': 215.0},
+        'origin': {'lat': LAT0, 'lon': LON0, 'elev_m': 215.0, **tri},
         'world_bounds_km': {'x_min': WX_MIN, 'x_max': WX_MAX, 'y_min': WY_MIN, 'y_max': WY_MAX},
         'world_bounds_ll': {'lat_min': LAT_MIN, 'lat_max': LAT_MAX, 'lon_min': LON_MIN, 'lon_max': LON_MAX},
         'cam1_kwqc': {**c1, 'x_km': ll2km(c1['lat'], c1['lon'])[0], 'y_km': ll2km(c1['lat'], c1['lon'])[1]},
         'cam2_kcrg': {**c2, 'x_km': ll2km(c2['lat'], c2['lon'])[0], 'y_km': ll2km(c2['lat'], c2['lon'])[1]},
+        'cam3_wilson': {**c3, 'x_km': ll2km(c3['lat'], c3['lon'])[0], 'y_km': ll2km(c3['lat'], c3['lon'])[1]},
+        'bunkers': {
+            'north': {**bn, 'x_km': ll2km(bn['lat'], bn['lon'])[0], 'y_km': ll2km(bn['lat'], bn['lon'])[1]},
+            'south': {**bs, 'x_km': ll2km(bs['lat'], bs['lon'])[0], 'y_km': ll2km(bs['lat'], bs['lon'])[1]},
+        },
         'tower_t3': {'lat': t3[0], 'lon': t3[1], 'height_m': 71.6, 'x_km': ll2km(*t3)[0], 'y_km': ll2km(*t3)[1]},
         'iaaap_rings_km': iaaap_km,
         'towns': town_pts,

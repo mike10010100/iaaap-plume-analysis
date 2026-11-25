@@ -52,7 +52,7 @@
         A plain-English public tracker of the <strong>9:00 a.m. CST</strong> U.S. Army controlled detonation of ~5 tons of aging, unstable lead azide in Middletown, Iowa—combining <strong>real-time EPA lead air monitors</strong>, live local weather stations, and a 3D computer simulation of where the smoke traveled. Switch to <strong>Expert</strong> mode in the top bar anytime for full meteorology, sensitivity sliders, and technical figures.
       </p>
       <p class="subtitle expert-only">
-        An end-to-end open-source capability test reconstructing the 9:00 a.m. CST controlled detonation of ~5 tons (~9,500 lb / 3,050 kg Pb) of degraded lead azide at Middletown, Iowa using two public broadcast livestreams (<strong>KWQC-TV6 / C-SPAN</strong> and <strong>KCRG-TV9 / Associated Press</strong>), FAA obstacle records, NWS/IEM ASOS &amp; Iowa DOT RWIS weather networks, 12Z upper-air soundings, and live EPA Region 7 Xact continuous lead monitoring.
+        An end-to-end open-source capability test reconstructing the 9:00 a.m. CST controlled detonation of ~5 tons (~9,500 lb / 3,050 kg Pb) of degraded lead azide at Middletown, Iowa using three independent video angles (<strong>KWQC-TV6 / C-SPAN</strong>, <strong>KCRG-TV9 / Associated Press</strong>, and <strong>@nmjameswilson’s aerial drone</strong>), FAA obstacle records, 4-node <strong>NOAA HRRR 3 km</strong> + NWS/IEM ASOS &amp; Iowa DOT RWIS weather networks, 12Z upper-air soundings, and live EPA Region 7 Xact continuous lead monitoring.
       </p>
 
       <!-- Plain-English 3-Card Bottom Line (Simple View) -->
@@ -75,13 +75,13 @@
         <div class="kpi-card">
           <div class="kpi-hdr">
             <div class="kpi-label simple-only">Blast Location</div>
-            <div class="kpi-label expert-only">Stereo Blast Origin (46.3°)</div>
-            <span class="tag-live">Video-Measured</span>
+            <div class="kpi-label expert-only">3-Cam Blast Origin (64.6°)</div>
+            <span class="tag-live">3-Angle Video</span>
           </div>
           <div class="kpi-val cyan simple-only">Inside IAAAP</div>
-          <div class="kpi-sub simple-only">2 bunkers near Middletown, IA · 9:00 AM CST</div>
-          <div class="kpi-val cyan expert-only">40.810°N, -91.267°W</div>
-          <div class="kpi-sub expert-only">±250 m (5.8× tighter than single cam) · Dual bunkers ~240 m apart</div>
+          <div class="kpi-sub simple-only">2 bunkers (311 m apart) near Middletown · 9:00 AM CST</div>
+          <div class="kpi-val cyan expert-only">40.809°N, -91.266°W</div>
+          <div class="kpi-sub expert-only">±244×46 m (4.9× tighter vs 2-cam) · Dual bunkers 311 m @ 209°</div>
         </div>
 
         <div class="kpi-card">
@@ -156,8 +156,9 @@
         <!-- Top-Left Camera Viewpoint Presets -->
         <div class="hud-top-left">
           <button class="hud-btn active" data-preset="overview">3D Overview</button>
-          <button class="hud-btn expert-preset" data-preset="kwqc" title="Snap to KWQC Cam 1 on 190th Ave looking SSE across FAA Tower T3">Cam 1 (KWQC View)</button>
-          <button class="hud-btn expert-preset" data-preset="kcrg" title="Snap to KCRG/AP Cam 2 at 9856 202nd Ave looking ESE">Cam 2 (KCRG/AP View)</button>
+          <button class="hud-btn expert-preset" data-preset="kwqc" title="Snap to KWQC Cam 1 on 190th Ave looking SSE across FAA Tower T3">Cam 1 (KWQC)</button>
+          <button class="hud-btn expert-preset" data-preset="kcrg" title="Snap to KCRG/AP Cam 2 at 9856 202nd Ave looking ESE">Cam 2 (KCRG/AP)</button>
+          <button class="hud-btn expert-preset" data-preset="wilson" title="Snap to @nmjameswilson Cam 3 aerial drone (101 m AGL on 80th St, edge of 4 NM TFR) looking due East at T+5s ballistic collapse">Cam 3 (Drone View)</button>
           <button class="hud-btn expert-preset" data-preset="shear" title="Side cross-section showing vertical wind shear and 1,075m inversion cap">Shear Cross-Section</button>
           <button class="hud-btn" data-preset="top">Top-Down Map</button>
           <button id="btn-fs" class="hud-btn">⛶ Fullscreen</button>
@@ -310,12 +311,12 @@
           <ul class="simple-only">
             <li><strong>Green EPA Lead Monitors (<code>AS01–AS04</code>):</strong> Real air samplers parked downwind that measure airborne lead every 5 minutes and publish live results.</li>
             <li><strong>Wind Arrows &amp; 43 EPA Sites:</strong> Real local airport and highway weather sensors updated every 10 minutes, plus actual EPA monitor locations.</li>
-            <li><strong>Blast Timing &amp; Location:</strong> Verified directly from two public Iowa TV livestreams of the 9:00 a.m. blast.</li>
+            <li><strong>Blast Timing, Height &amp; Location:</strong> Verified directly from two public Iowa TV livestreams plus an aerial drone video showing the heavy debris falling back onto the blast pad within seconds.</li>
           </ul>
           <ul class="expert-only">
             <li><strong>EPA Region 7 Xact (<code>AS01–AS04</code>):</strong> Real 5-minute continuous lead measurements (<code>µg/m³</code>) synced frame-by-frame to the 3D playback clock up to the latest live observation.</li>
             <li><strong>43 EPA Monitor Sites + 15 Weather Sensors:</strong> Real GPS locations, live NWS/IEM ASOS airport winds, and Iowa DOT RWIS highway winds updated every 10 minutes (24h+ rolling archive).</li>
-            <li><strong>Dual-Video Kinematics &amp; Stereo Origin:</strong> Directly measured from KWQC + KCRG/AP 1080p frames, FAA Tower T3 (235 ft), and acoustic shockwave delay (<code>±250 m</code>).</li>
+            <li><strong>3-Camera Kinematics &amp; Triangulated Origin:</strong> Directly measured from KWQC (FAA Tower T3), KCRG/AP (9856 202nd Ave), and <code>@nmjameswilson</code>'s due-East aerial drone (6-landmark pose at <code>101 m AGL</code>), resolving <code>±244×46 m</code> origin, <code>311 m @ 209°</code> bunker axis, <code>33 ms</code> firing sync, and <code>159 m → 130 m</code> two-stage ballistic collapse.</li>
           </ul>
         </div>
         <div class="prov-card proj">
@@ -593,9 +594,16 @@
 
     <!-- Publication Figures Gallery (Expert Mode) -->
     <section id="figures" class="block expert-only">
-      <h2>📊 Visual Forensics, Stereo Triangulation &amp; Dispersion Figures (Click to Zoom)</h2>
-      <p class="section-lead">All six analytical plates clearly separate <span class="tag-live">● Observed / Video-Measured</span> evidence from <span class="tag-proj">◆ Modeled Projections</span> across 60,000–80,000 Lagrangian particles.</p>
+      <h2>📊 Visual Forensics, 3-Camera Triangulation &amp; Dispersion Figures (Click to Zoom)</h2>
+      <p class="section-lead">All seven analytical plates clearly separate <span class="tag-live">● Observed / Video-Measured</span> evidence from <span class="tag-proj">◆ Modeled Projections</span> across 60,000–80,000 Lagrangian particles.</p>
       <div class="fig-grid">
+        <figure class="fig-card">
+          <img src="assets/figures/fig7_cam3_drone_forensics.png" alt="Figure 7: 3rd-Angle Aerial Drone Forensics and Two-Stage Ballistic Collapse" loading="lazy" />
+          <figcaption class="fig-cap">
+            <strong>Figure 7 — 3rd-Angle Aerial Drone Forensics (@nmjameswilson), 3-Camera Convergence &amp; Ballistic Collapse <span class="tag-live">Video-Measured</span></strong>
+            Six-landmark calibration (Long Creek Church 226.7 m ruler, Yard C igloos, Line 1 Water Tower, Line 3A Smokestack) places the drone at 40.812°N, -91.330°W (101 m AGL, edge of 4 NM FAA TFR), tightening origin uncertainty 4.9× (±244×46 m), locking the true 311 m @ 209° dual-bunker axis, revealing 33 ms simultaneous firing and a two-stage 159 m ballistic collapse into a flat ~100–130 m white cap, and matching 15Z southward wind shear (2.75→4.35 m/s, R²=0.980).
+          </figcaption>
+        </figure>
         <figure class="fig-card">
           <img src="assets/figures/fig1_visual_plume_kinematics.png" alt="Figure 1: Visual Plume Inspection and Stabilized Kinematics" loading="lazy" />
           <figcaption class="fig-cap">
@@ -653,7 +661,7 @@
       </p>
 
       <div class="callout green expert-only">
-        <strong>Headline Verification:</strong> Purely open-source analysis (two public news videos + FAA/OSM + NWS/IEM/Open-Meteo meteorology) independently locked the blast origin to <code>±250 m</code> inside IAAAP, measured vertical wind shear across three altitude bands (<code>4.9 → 7.2 → 8.7 m/s</code>), and reproduced the exact SW–WSW dispersion corridor where EPA deployed 43 monitors—predicting plume arrival times at <code>AS01</code> (T+12m vs T+10–11m obs) and <code>AS02</code> (T+42m vs T+45m obs) to within ~3 minutes.
+        <strong>Headline Verification:</strong> Purely open-source analysis (three public videos — KWQC, KCRG/AP, and <code>@nmjameswilson</code>’s aerial drone — plus FAA/OSM and 4-node NOAA HRRR 3 km + ASOS/RWIS meteorology) independently locked the blast origin to <code>±244×46 m</code> inside IAAAP’s <code>209°</code> magazine loop (dual bunkers <code>311 m</code> apart, fired <code>33 ms</code> apart), resolved two-stage ballistic debris collapse (<code>159 m</code> peak → flat <code>~100–130 m</code> white cap), matched vertical wind shear across both axes (<code>R² = 0.956–0.999</code>), and reproduced the exact SW–WSW corridor where EPA deployed 43 monitors.
       </div>
 
       <h3 class="expert-only" style="margin-top:1.3rem;font-size:1.05rem;">Downwind Community Dispersion Summary (60-Realization Ensemble)</h3>
@@ -686,16 +694,16 @@
             </thead>
             <tbody>
               <tr>
-                <td><strong>Multi-Camera Stereo Geolocation</strong></td>
+                <td><strong>3-Camera Triangulation &amp; Bunker Geometry</strong></td>
                 <td><span class="badge badge-green">Very High</span></td>
-                <td>KWQC (FAA Tower T3) + KCRG/AP ("9856" 911 sign at 9856 202nd Ave) achieved 46.3° stereo cross-bearing (±250 m, 5.8× tighter).</td>
-                <td>Requires ≥2 distinct camera angles with resolvable static landmarks (towers, signage, tree gaps).</td>
+                <td>KWQC (FAA Tower T3) + KCRG/AP (9856 202nd Ave) + Wilson Drone (6-landmark due-East pose @ 101 m AGL) achieved 64.6° max baseline (±244×46 m, 4.9× tighter than 2-cam) and resolved the true 311 m @ 209° dual-bunker axis.</td>
+                <td>Requires ≥2–3 distinct viewing angles with resolvable static landmarks (towers, signage, church/roads, stacks).</td>
               </tr>
               <tr>
-                <td><strong>3D Plume Kinematics &amp; Shear</strong></td>
+                <td><strong>3D Plume Kinematics, Ballistic Collapse &amp; Shear</strong></td>
                 <td><span class="badge badge-green">Very High</span></td>
-                <td>Optical tracking matched 15Z winds across 45 m, 95 m, and 225 m AGL (R² = 0.956–0.999) plus +2.8 m/s vertical buoyant rise.</td>
-                <td>Optical contrast fades into sky background noise after ~50–60 s of turbulent dilution.</td>
+                <td>Optical tracking matched 15Z winds across orthogonal axes (KWQC/KCRG WSW + Drone southward shear 2.75→4.35 m/s, R²=0.980) and directly separated 159 m collapsing ballistic debris from the flat ~100–130 m white smoke cap.</td>
+                <td>Optical contrast fades into sky background noise after ~30–60 s of turbulent dilution.</td>
               </tr>
               <tr>
                 <td><strong>Dispersion Corridor &amp; Timing</strong></td>
@@ -729,7 +737,7 @@
     </div>
 
     <footer>
-      Personal open-source data analysis &amp; public tracker · Data sourced from public broadcasts (C-SPAN/KWQC, AP/KCRG), FAA DOF, NWS/IEM ASOS &amp; Iowa DOT RWIS, Open-Meteo, and EPA Region 7 public dashboards.
+      Personal open-source data analysis &amp; public tracker · Data sourced from public video (C-SPAN/KWQC, AP/KCRG, @nmjameswilson aerial drone), FAA DOF/TFR, NOAA HRRR 3 km, NWS/IEM ASOS &amp; Iowa DOT RWIS, Open-Meteo, and EPA Region 7 public dashboards.
     </footer>
   </main>
 
