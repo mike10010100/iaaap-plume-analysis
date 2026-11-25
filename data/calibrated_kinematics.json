@@ -1,0 +1,50 @@
+{
+  "camera_nominal": {
+    "lat": 40.865,
+    "lon": -91.2955,
+    "road": "190th Ave (Level B dirt road), ~1.0 mi E/ENE of Danville, IA"
+  },
+  "tower_T3": {
+    "lat": 40.8411,
+    "lon": -91.28298,
+    "agl_ft": 235,
+    "agl_m": 71.6,
+    "dist_km_nom": 2.85,
+    "bearing_deg_nom": 158.2,
+    "height_px": 307
+  },
+  "blast_nominal": {
+    "lat": 40.808,
+    "lon": -91.265,
+    "dist_km_nom": 6.8,
+    "dist_mi_nom": 4.22,
+    "bearing_deg_nom": 158.0
+  },
+  "acoustic": {
+    "onset_est_s": 1201.5,
+    "boom_s": 1220.3,
+    "dt_s": 18.8,
+    "sound_speed_ms": 331.3,
+    "acoustic_dist_km": 6.23
+  },
+  "scale_m_per_px": {
+    "nom": 0.521,
+    "lo": 0.382,
+    "hi": 0.695
+  },
+  "plume_1_east": {
+    "dx_dt_px_s": 9.07,
+    "r2": 0.9562,
+    "v_nom_ms": 4.89,
+    "max_h_m_nom": 67.2
+  },
+  "plume_2_west": {
+    "dx_dt_px_s": 13.28,
+    "r2": 0.9991,
+    "v_nom_ms": 7.16,
+    "max_h_m_nom": 116.6,
+    "v_lower_ms": 6.84,
+    "v_upper_ms": 8.07
+  },
+  "bunker_sep_m_nom": 239.0
+}

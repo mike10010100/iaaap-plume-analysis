@@ -1,0 +1,36 @@
+name: Auto-Update Live IAAAP Telemetry
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-telemetry
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Fetch live EPA Xact, ASOS, RWIS & AQ measurements
+        run: python3 fetch_measurements.py
+
+      - name: Commit and push if live measurements changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site_data/live_telemetry.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(data): auto-update live IAAAP telemetry ($(date -u +%Y-%m-%dT%H:%MZ))"
+            git pull --rebase origin main || true
+            git push
+          else
+            echo "No measurement changes detected; skipping commit."
+          fi

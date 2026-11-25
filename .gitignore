@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+data/snapshots/
+data/updater.log
+data/latest_measurements.json
+*.mkv
+*.mp4
+*.webm
+*.wav
+*.mp3
+*.npz
+.DS_Store

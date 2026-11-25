@@ -1,0 +1,35 @@
+{
+  "cam1_kwqc": {
+    "lat": 40.865,
+    "lon": -91.2955,
+    "site": "190th Ave, 1.0 mi ENE of Danville, IA",
+    "ref_landmark": "FAA Tower T3 (235 ft AGL)",
+    "bearing_deg": 158.3,
+    "bearing_err_deg": 2.5,
+    "dist_km": 6.58,
+    "acoustic_dist_km": 6.23
+  },
+  "cam2_kcrg_ap": {
+    "lat": 40.82595,
+    "lon": -91.31905,
+    "site": "9856 202nd Ave, Danville, IA (blue 911 sign verified)",
+    "ref_landmark": "Creek treeline gap (430 m ESE)",
+    "bearing_deg": 112.0,
+    "bearing_err_deg": 2.5,
+    "dist_km": 4.75,
+    "dx_dt_px_s": 14.31,
+    "r2": 0.9979,
+    "v_true_ms": 8.69,
+    "vz_ms": 2.76,
+    "h_top_t35_m": 207.8,
+    "h_top_t51_m": 252.0
+  },
+  "triangulated_origin": {
+    "lat": 40.8099,
+    "lon": -91.2668,
+    "stereo_angle_deg": 46.3,
+    "err_semi_major_m": 290,
+    "err_semi_minor_m": 190,
+    "area_reduction_factor": 5.8
+  }
+}

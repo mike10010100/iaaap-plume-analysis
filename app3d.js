@@ -1,0 +1,676 @@
+/**
+ * Interactive 3D WebGL Atmospheric Plume & Live Sensor Observatory (Three.js ES Module)
+ * Coordinate system in Three.js (1 unit = 1 km):
+ *   X = East (+km from stereo origin 40.8099N, -91.2668W)
+ *   Y = Altitude (+km AGL, scaled by verticalExag slider!)
+ *   Z = South (-Y_north km! So North is -Z, South is +Z, East is +X, West is -X)
+ */
+import * as THREE from 'https://esm.sh/three@0.169.0';
+import { OrbitControls } from 'https://esm.sh/three@0.169.0/examples/jsm/controls/OrbitControls.js';
+
+export class Plume3DObservatory {
+  constructor(canvasEl, hudCallbacks) {
+    this.canvas = canvasEl;
+    this.cb = hudCallbacks || {};
+    this.vertExag = 12.0; // 12x vertical exaggeration makes 0-1,075m shear & terrain crystal clear!
+    this.playing = true;
+    this.speedMul = 20.0; // 20x speed -> 4 hours plays cleanly in ~25 seconds (slower early!)
+    this.simSec = 1500.0; // Start at T+25m so full 3D sheared multi-regime plume is immediately visible!
+    this.maxSec = 14400.0;
+    this.colorMode = 'regime'; // 'regime' | 'altitude'
+    this.pickables = [];
+    this.sensorGroup = new THREE.Group();
+    this.windGroup = new THREE.Group();
+    this.sightlineGroup = new THREE.Group();
+    this.lidGroup = new THREE.Group();
+    this.labelGroup = new THREE.Group();
+    this.cameraTargetGoal = null;
+    this.cameraPosGoal = null;
+
+    this._initRenderer();
+    this._initLighting();
+    this._initEvents();
+  }
+
+  _initRenderer() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x060a10);
+    this.scene.fog = new THREE.FogExp2(0x060a10, 0.0042);
+
+    const w = this.canvas.clientWidth || 1200;
+    const h = this.canvas.clientHeight || 700;
+    this.camera = new THREE.PerspectiveCamera(46, w / h, 0.05, 400);
+    this.camera.position.set(22, 22, 31);
+
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setSize(w, h, false);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    this.controls = new OrbitControls(this.camera, this.canvas);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.07;
+    this.controls.maxPolarAngle = Math.PI * 0.492;
+    this.controls.minDistance = 0.8;
+    this.controls.maxDistance = 135;
+    this.controls.target.set(-14, 1.5, 11);
+    this.controls.update();
+
+    this.raycaster = new THREE.Raycaster();
+    this.pointer = new THREE.Vector2();
+    this.clock = new THREE.Clock();
+
+    this.scene.add(this.sensorGroup, this.windGroup, this.sightlineGroup, this.lidGroup, this.labelGroup);
+  }
+
+  _initLighting() {
+    this.scene.add(new THREE.AmbientLight(0xcbd5e1, 1.15));
+    const sun = new THREE.DirectionalLight(0xfff1d6, 1.45);
+    // Morning Nov 25 9AM CST sun: Azimuth 138° SE, Elevation 16.7°
+    sun.position.set(45, 22, 50);
+    this.scene.add(sun);
+    const fill = new THREE.DirectionalLight(0x38bdf8, 0.45);
+    fill.position.set(-40, 25, -35);
+    this.scene.add(fill);
+  }
+
+  _initEvents() {
+    this._onResize = () => {
+      const parent = this.canvas.parentElement;
+      if (!parent) return;
+      const w = parent.clientWidth;
+      const h = parent.clientHeight;
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(w, h, false);
+    };
+    window.addEventListener('resize', this._onResize);
+
+    let downPos = { x: 0, y: 0 };
+    this.canvas.addEventListener('pointerdown', (e) => {
+      downPos = { x: e.clientX, y: e.clientY };
+      this.cameraPosGoal = null;
+      this.cameraTargetGoal = null;
+    });
+    this.canvas.addEventListener('pointerup', (e) => {
+      const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+      if (dist > 6) return; // Dragged orbit, not a click
+      const rect = this.canvas.getBoundingClientRect();
+      this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hits = this.raycaster.intersectObjects(this.pickables, false);
+      if (hits.length > 0 && this.cb.onSelect) {
+        this.cb.onSelect(hits[0].object.userData);
+      }
+    });
+  }
+
+  // Convert lat/lon to world (x_km, z_km) where z_km = -y_north_km
+  ll2xz(lat, lon) {
+    const lat0 = this.staticData.origin.lat;
+    const lon0 = this.staticData.origin.lon;
+    const mLat = 111.132;
+    const mLon = 111.320 * Math.cos((lat0 * Math.PI) / 180);
+    return { x: (lon - lon0) * mLon, z: -(lat - lat0) * mLat };
+  }
+
+  // Bilinear elevation lookup (meters relative to IAAAP ref 215m -> returns km * vertExag)
+  terrainY(xKm, zKm) {
+    if (!this.dem) return 0;
+    const yNorth = -zKm;
+    const { nx, ny, wx_min_km, wx_max_km, wy_min_km, wy_max_km, ref_elev_m, elev_m } = this.dem;
+    const fx = THREE.MathUtils.clamp((xKm - wx_min_km) / (wx_max_km - wx_min_km), 0, 1) * (nx - 1);
+    const fy = THREE.MathUtils.clamp((wy_max_km - yNorth) / (wy_max_km - wy_min_km), 0, 1) * (ny - 1);
+    const ix = Math.min(Math.floor(fx), nx - 2), iy = Math.min(Math.floor(fy), ny - 2);
+    const tx = fx - ix, ty = fy - iy;
+    const e00 = elev_m[iy * nx + ix], e10 = elev_m[iy * nx + ix + 1];
+    const e01 = elev_m[(iy + 1) * nx + ix], e11 = elev_m[(iy + 1) * nx + ix + 1];
+    const e = (e00 * (1 - tx) + e10 * tx) * (1 - ty) + (e01 * (1 - tx) + e11 * tx) * ty;
+    return ((e - ref_elev_m) / 1000.0) * this.vertExag;
+  }
+
+  async init(staticData, demData, plumeData, liveData) {
+    this.staticData = staticData;
+    this.dem = demData;
+    this.plume = plumeData;
+    this.maxSec = plumeData.times_sec[plumeData.times_sec.length - 1];
+
+    const loader = new THREE.TextureLoader();
+    const loadTex = (url) => new Promise((res) => loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; res(t); }, undefined, () => res(null)));
+    const [texDark, texSat, drapeExp, drapeDep, drapeSens] = await Promise.all([
+      loadTex('assets/textures/terrain_dark.jpg'),
+      loadTex('assets/textures/terrain_sat.jpg'),
+      loadTex('assets/textures/drape_exposure.png'),
+      loadTex('assets/textures/drape_deposition.png'),
+      loadTex('assets/textures/drape_sensitivity.png'),
+    ]);
+    this.textures = { dark: texDark, sat: texSat, exposure: drapeExp, deposition: drapeDep, sensitivity: drapeSens };
+
+    this._buildTerrain();
+    this._buildStaticOverlays();
+    this._buildParticles();
+    this._buildAtmosphericLids();
+    if (liveData) this.updateLiveTelemetry(liveData);
+
+    this.applyVerticalExaggeration(this.vertExag);
+    this.updateParticlesAtTime(this.simSec);
+    this._animate();
+  }
+
+  _buildTerrain() {
+    const { wx_min_km, wx_max_km, wy_min_km, wy_max_km, nx, ny } = this.dem;
+    const W = wx_max_km - wx_min_km; // 76 km
+    const H = wy_max_km - wy_min_km; // 60 km
+    const cx = (wx_min_km + wx_max_km) / 2; // -26 km
+    const cz = -(wy_min_km + wy_max_km) / 2; // +16 km
+
+    // Base Terrain Mesh
+    this.terrainGeo = new THREE.PlaneGeometry(W, H, nx - 1, ny - 1);
+    this.terrainGeo.rotateX(-Math.PI / 2);
+    this.terrainMat = new THREE.MeshStandardMaterial({
+      map: this.textures.dark,
+      roughness: 0.92,
+      metalness: 0.05,
+    });
+    this.terrainMesh = new THREE.Mesh(this.terrainGeo, this.terrainMat);
+    this.terrainMesh.position.set(cx, 0, cz);
+    this.scene.add(this.terrainMesh);
+
+    // Heatmap Drape Overlay Mesh (slightly offset above terrain to avoid z-fighting!)
+    this.drapeGeo = new THREE.PlaneGeometry(W, H, nx - 1, ny - 1);
+    this.drapeGeo.rotateX(-Math.PI / 2);
+    this.drapeMat = new THREE.MeshBasicMaterial({
+      map: this.textures.exposure,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+    });
+    this.drapeMesh = new THREE.Mesh(this.drapeGeo, this.drapeMat);
+    this.drapeMesh.position.set(cx, 0.06, cz);
+    this.scene.add(this.drapeMesh);
+
+    // Subtle metric coordinate grid around ground
+    const grid = new THREE.GridHelper(110, 22, 0x1e2d42, 0x121c2a);
+    grid.position.set(cx, -0.8, cz);
+    this.scene.add(grid);
+  }
+
+  _makeSpriteLabel(text, color = '#ffffff', bg = 'rgba(8,12,18,0.82)', fontSize = 26) {
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    ctx.font = `700 ${fontSize}px Inter, sans-serif`;
+    const pad = 12;
+    const tw = ctx.measureText(text).width;
+    c.width = tw + pad * 2;
+    c.height = fontSize + pad * 1.4;
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(2, 2, c.width - 4, c.height - 4, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.font = `700 ${fontSize}px Inter, sans-serif`;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, pad, c.height / 2 + 1);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sp = new THREE.Sprite(mat);
+    const aspect = c.width / c.height;
+    sp.scale.set(1.22 * aspect, 1.22, 1);
+    sp.renderOrder = 10;
+    return sp;
+  }
+
+  _buildStaticOverlays() {
+    const s = this.staticData;
+
+    // 1. IAAAP Perimeter Polygon (gold dashed loop)
+    for (const ring of s.iaaap_rings_km) {
+      const pts = ring.map(([x, y]) => new THREE.Vector3(x, 0.10, -y));
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      this.sightlineGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.85 })));
+    }
+
+    // 2. 5-mile (8.05 km) and 20-mile (32.19 km) range rings
+    const addRing = (radiusKm, color) => {
+      const pts = [];
+      for (let i = 0; i <= 96; i++) {
+        const a = (i / 96) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(a) * radiusKm, 0.08, Math.sin(a) * radiusKm));
+      }
+      this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 })));
+    };
+    addRing(8.047, 0xff4757);
+    addRing(32.187, 0xffaa33);
+
+    // 3. Stereo Origin Beacon + Dual-Camera 95% Error Ellipse (340m x 220m)
+    const originSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 20, 20),
+      new THREE.MeshBasicMaterial({ color: 0xff2244 })
+    );
+    originSphere.position.set(0, 0.25, 0);
+    originSphere.userData = {
+      type: 'origin',
+      title: 'Stereo-Triangulated Detonation Zone',
+      body: `<b>Coordinates:</b> ${s.origin.lat.toFixed(4)}°N, ${s.origin.lon.toFixed(4)}°W (±250 m)<br>` +
+            `<b>Stereo Baseline:</b> 46.3° (KWQC + KCRG/AP)<br>` +
+            `<b>Dual-Bunker Separation:</b> ~239 m (176–320 m)<br>` +
+            `<b>Event Time:</b> 2026-11-25 15:00 UTC (9:00 AM CST)<br>` +
+            `<b>Inventory:</b> ~9,500 lb lead azide (~3,050 kg elemental Pb)`
+    };
+    this.sightlineGroup.add(originSphere);
+    this.pickables.push(originSphere);
+
+    const ellPts = [];
+    const rot = (135 * Math.PI) / 180;
+    for (let i = 0; i <= 64; i++) {
+      const th = (i / 64) * Math.PI * 2;
+      const dN = 0.34 * Math.cos(th) * Math.cos(rot) - 0.22 * Math.sin(th) * Math.sin(rot);
+      const dE = 0.34 * Math.cos(th) * Math.sin(rot) + 0.22 * Math.sin(th) * Math.cos(rot);
+      ellPts.push(new THREE.Vector3(dE, 0.14, -dN));
+    }
+    this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ellPts), new THREE.LineBasicMaterial({ color: 0xffff00 })));
+
+    // 4. Camera 1 (KWQC), FAA Tower T3, Camera 2 (KCRG/AP) + 3D Sightlines!
+    const addCam = (cam, color, name, desc) => {
+      const x = cam.x_km, z = -cam.y_km;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.45, 0.35, 0.45),
+        new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.45 })
+      );
+      mesh.position.set(x, 0.32, z);
+      mesh.userData = { type: 'camera', title: name, body: desc };
+      this.sightlineGroup.add(mesh);
+      this.pickables.push(mesh);
+
+      const linePts = [new THREE.Vector3(x, 0.30, z), new THREE.Vector3(0, 0.30, 0)];
+      this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(linePts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 })));
+
+      const lbl = this._makeSpriteLabel(name, '#' + color.toString(16).padStart(6, '0'), 'rgba(8,12,18,0.88)', 22);
+      lbl.position.set(x, 1.35, z);
+      this.sightlineGroup.add(lbl);
+    };
+
+    addCam(s.cam1_kwqc, 0x00e5ff, 'Cam 1: KWQC (190th Ave)',
+      `<b>Site:</b> ${s.cam1_kwqc.site}<br><b>Bearing:</b> ${s.cam1_kwqc.bearing_deg}° SSE across FAA Tower T3<br>` +
+      `<b>Acoustic Range:</b> 6.23 ± 0.5 km (boom @ Δt=18.8s)<br><b>Tracked Plumes:</b> P1 4.9 m/s, P2 7.2 m/s (R²=0.999)`);
+
+    addCam(s.cam2_kcrg, 0xff8833, 'Cam 2: KCRG/AP (9856 202nd)',
+      `<b>Site:</b> ${s.cam2_kcrg.site}<br><b>Bearing:</b> ${s.cam2_kcrg.bearing_deg}° ESE | Range: ${s.cam2_kcrg.dist_km} km<br>` +
+      `<b>Tracked Upper Puff:</b> ${s.cam2_kcrg.v_true_ms} m/s (R²=${s.cam2_kcrg.r2}), rising ${s.cam2_kcrg.h_top_t35_m}→${s.cam2_kcrg.h_top_t51_m} m AGL`);
+
+    // 3D FAA Tower T3 (actual 71.6 m height scaled by vertExag!)
+    const t3x = s.tower_t3.x_km, t3z = -s.tower_t3.y_km;
+    this.towerT3Mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.06, 1.0, 10),
+      new THREE.MeshStandardMaterial({ color: 0xff44ff, emissive: 0xff22cc, emissiveIntensity: 0.65 })
+    );
+    this.towerT3Mesh.position.set(t3x, 0.5, t3z);
+    this.towerT3Mesh.userData = {
+      type: 'tower',
+      title: 'FAA Tower T3 (OAS 19-002048)',
+      body: `<b>Location:</b> 40.8411°N, -91.2830°W<br><b>Height:</b> 235 ft (71.6 m) AGL<br><b>Role:</b> Optical pixel-scale calibration landmark (307 px in KWQC feed)`
+    };
+    this.sightlineGroup.add(this.towerT3Mesh);
+    this.pickables.push(this.towerT3Mesh);
+    const t3Lbl = this._makeSpriteLabel('Tower T3 (235 ft)', '#ff88ff', 'rgba(8,12,18,0.85)', 20);
+    t3Lbl.position.set(t3x, 1.4, t3z);
+    this.sightlineGroup.add(t3Lbl);
+    this.towerT3Label = t3Lbl;
+
+    // 5. Key Towns 3D Labels
+    const showTowns = new Set(['Middletown, IA', 'Danville, IA', 'Burlington, IA', 'Augusta, IA', 'Denmark, IA',
+                               'West Point, IA', 'Fort Madison, IA', 'Donnellson, IA', 'Farmington, IA', 'Kahoka, MO', 'Keokuk, IA']);
+    for (const t of s.towns) {
+      if (!showTowns.has(t.town)) continue;
+      const short = t.town.replace(', IA', '').replace(', MO', ' (MO)');
+      const sp = this._makeSpriteLabel(short, '#e2e8f0', 'rgba(10,15,24,0.72)', 20);
+      sp.position.set(t.x_km, 0.9, -t.y_km);
+      sp.scale.multiplyScalar(0.82);
+      this.labelGroup.add(sp);
+    }
+  }
+
+  _buildParticles() {
+    const N = this.plume.n_particles;
+    this.partPositions = new Float32Array(N * 3);
+    this.partColors = new Float32Array(N * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.partPositions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.partColors, 3));
+
+    // Create crisp soft glowing circular particle sprite texture!
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.35, 'rgba(255,255,255,0.85)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    const pTex = new THREE.CanvasTexture(c);
+
+    const mat = new THREE.PointsMaterial({
+      size: 0.72,
+      map: pTex,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.90,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    this.points = new THREE.Points(geo, mat);
+    this.points.frustumCulled = false;
+    this.scene.add(this.points);
+  }
+
+  _buildAtmosphericLids() {
+    const W = 76, H = 60, cx = -26, cz = 16;
+    // Dynamic Morning PBL Ceiling Plane (translucent emerald green!)
+    const pblGeo = new THREE.PlaneGeometry(W, H);
+    pblGeo.rotateX(-Math.PI / 2);
+    this.pblMesh = new THREE.Mesh(
+      pblGeo,
+      new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false })
+    );
+    this.pblMesh.position.set(cx, 0.285 * this.vertExag, cz);
+    this.lidGroup.add(this.pblMesh);
+
+    const pblEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(pblGeo),
+      new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.45 })
+    );
+    this.pblMesh.add(pblEdges);
+
+    // Fixed Subsidence Inversion Cap (1,075 m AGL, crimson translucent lid!)
+    const invGeo = new THREE.PlaneGeometry(W, H);
+    invGeo.rotateX(-Math.PI / 2);
+    this.invMesh = new THREE.Mesh(
+      invGeo,
+      new THREE.MeshBasicMaterial({ color: 0xff4455, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
+    );
+    this.invMesh.position.set(cx, 1.075 * this.vertExag, cz);
+    this.lidGroup.add(this.invMesh);
+
+    const invEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(invGeo),
+      new THREE.LineBasicMaterial({ color: 0xff4455, transparent: true, opacity: 0.5 })
+    );
+    this.invMesh.add(invEdges);
+
+    this.invLbl = this._makeSpriteLabel('1,075 m Subsidence Inversion Cap (12Z)', '#ff7788', 'rgba(20,8,12,0.85)', 21);
+    this.invLbl.position.set(-22, 1.075 * this.vertExag + 0.55, -10);
+    this.lidGroup.add(this.invLbl);
+
+    this.pblLbl = this._makeSpriteLabel('Mixing Layer (PBL)', '#6ee7b7', 'rgba(8,20,14,0.85)', 21);
+    this.pblLbl.position.set(-34, 0.285 * this.vertExag + 0.45, 25);
+    this.lidGroup.add(this.pblLbl);
+  }
+
+  updateLiveTelemetry(liveData) {
+    this.liveData = liveData;
+    // Clear existing dynamic sensors & wind arrows
+    while (this.sensorGroup.children.length) this.sensorGroup.remove(this.sensorGroup.children[0]);
+    while (this.windGroup.children.length) this.windGroup.remove(this.windGroup.children[0]);
+    // Keep only static pickables
+    this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower'].includes(m.userData.type));
+
+    const xactMap = liveData.epa_xact || {};
+    const { wx_min_km, wx_max_km, wy_min_km, wy_max_km } = this.dem;
+
+    // 1. Plot all EPA Air Monitoring Stations (highlighting live Xact AS01..AS04 with tall glowing towers!)
+    for (const mon of (liveData.epa_monitors || [])) {
+      const { x, z } = this.ll2xz(mon.lat, mon.lon);
+      if (x < wx_min_km || x > wx_max_km || -z < wy_min_km || -z > wy_max_km) continue;
+      const key = String(mon.station_id || '').replace('-', '');
+      const xact = xactMap[key];
+      const baseY = this.terrainY(x, z);
+
+      if (xact) {
+        const pillar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.18, 0.28, 1.4, 12),
+          new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.7 })
+        );
+        pillar.position.set(x, baseY + 0.72, z);
+        pillar.userData = {
+          type: 'xact',
+          title: `EPA Live Xact ${mon.station_id}`,
+          body: `<b>Latest Obs (${xact.latest_ts_utc || 'N/A'}):</b> <span style="color:#00ff88;font-weight:700">${(xact.latest_value ?? 0).toFixed(4)} ${xact.units}</span><br>` +
+                `<b>Post-Blast Max:</b> ${xact.post_blast_max.toFixed(4)} µg/m³ | <b>Pre-Blast Max:</b> ${xact.pre_blast_max.toFixed(4)} µg/m³<br>` +
+                `<b>Distance:</b> ${xact.dist_km} km @ ${xact.bearing_deg}° | <b>Obs Count:</b> ${xact.obs_count}<br>` +
+                `<b>Modeled Hit Prob:</b> ${xact.hit_prob_pct ?? 'N/A'}% (peak ~T+${xact.modeled_peak_min ?? '?'}m)<br>` +
+                (xact.f_max_pct ? `<b>Inverse Release Bound:</b> f_Pb ≲ ${xact.f_max_pct.toFixed(4)}% (≤${xact.q_max_kg} kg)` : '')
+        };
+        this.sensorGroup.add(pillar);
+        this.pickables.push(pillar);
+
+        const lbl = this._makeSpriteLabel(`${key}: ${(xact.post_blast_max).toFixed(4)} µg/m³`, '#6ee7b7', 'rgba(6,22,16,0.9)', 21);
+        lbl.position.set(x, baseY + 2.15, z);
+        this.sensorGroup.add(lbl);
+      } else {
+        const cone = new THREE.Mesh(
+          new THREE.ConeGeometry(0.24, 0.55, 6),
+          new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x059669, emissiveIntensity: 0.35 })
+        );
+        cone.position.set(x, baseY + 0.3, z);
+        cone.userData = {
+          type: 'epa',
+          title: `EPA Station ${mon.station_id}`,
+          body: `<b>Instruments:</b> ${mon.instrument_type}<br><b>Distance:</b> ${mon.dist_km} km @ ${mon.bearing_deg}°<br><b>Coords:</b> ${mon.lat.toFixed(4)}°N, ${mon.lon.toFixed(4)}°W`
+        };
+        this.sensorGroup.add(cone);
+        this.pickables.push(cone);
+      }
+    }
+
+    // 2. Plot Live ASOS & Iowa DOT RWIS 3D Wind Arrows!
+    const addWindArrow = (lat, lon, toDeg, spdMs, color, title, body) => {
+      if (toDeg == null || spdMs == null) return;
+      const { x, z } = this.ll2xz(lat, lon);
+      if (x < wx_min_km - 5 || x > wx_max_km + 5 || -z < wy_min_km - 5 || -z > wy_max_km + 5) return;
+      const baseY = this.terrainY(x, z) + 0.55;
+      const rad = (toDeg * Math.PI) / 180;
+      const dir = new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad)).normalize();
+      const len = Math.max(1.8, spdMs * 0.9);
+      const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(x, baseY, z), len, color, 0.9, 0.55);
+      this.windGroup.add(arrow);
+
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), new THREE.MeshBasicMaterial({ color }));
+      orb.position.set(x, baseY, z);
+      orb.userData = { type: 'wind', title, body };
+      this.windGroup.add(orb);
+      this.pickables.push(orb);
+    };
+
+    for (const [k, st] of Object.entries(liveData.asos || {})) {
+      const l = st.latest;
+      if (!l) continue;
+      addWindArrow(st.lat, st.lon, l.wind_to_deg, l.wind_ms, 0xffdd44,
+        `ASOS Weather ${k}`,
+        `<b>Observed (${l.valid_utc}):</b> Wind FROM ${l.wind_from_deg}° → TO ${l.wind_to_deg}°<br>` +
+        `<b>Speed:</b> ${l.wind_ms} m/s (${(l.wind_ms * 2.237).toFixed(1)} mph) | <b>Temp:</b> ${l.temp_c ?? '?'}°C | <b>Sky:</b> ${l.sky || 'CLR'}`);
+    }
+    for (const [k, rw] of Object.entries(liveData.rwis || {})) {
+      addWindArrow(rw.lat, rw.lon, rw.wind_to_deg, rw.wind_ms, 0x38bdf8,
+        `Iowa DOT RWIS ${k} (${rw.name})`,
+        `<b>Observed (${rw.valid_utc}):</b> Wind FROM ${rw.wind_from_deg}° → TO ${rw.wind_to_deg}°<br>` +
+        `<b>Speed:</b> ${rw.wind_ms} m/s | <b>Temp:</b> ${rw.temp_f}°F`);
+    }
+  }
+
+  applyVerticalExaggeration(exag) {
+    this.vertExag = exag;
+    // Update terrain & drape vertices from real DEM!
+    const { elev_m, ref_elev_m } = this.dem;
+    for (const geo of [this.terrainGeo, this.drapeGeo]) {
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        pos.setY(i, ((elev_m[i] - ref_elev_m) / 1000.0) * exag);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+    }
+    // Scale Tower T3 (71.6 m = 0.0716 km)
+    if (this.towerT3Mesh) {
+      const hT3 = 0.0716 * exag;
+      const baseT3 = this.terrainY(this.staticData.tower_t3.x_km, -this.staticData.tower_t3.y_km);
+      this.towerT3Mesh.scale.set(1, hT3, 1);
+      this.towerT3Mesh.position.y = baseT3 + hT3 / 2;
+      this.towerT3Label.position.y = baseT3 + hT3 + 0.65;
+    }
+    // Update inversion cap height (1.075 km)
+    if (this.invMesh) {
+      const yInv = 1.075 * exag;
+      this.invMesh.position.y = yInv;
+      this.invLbl.position.y = yInv + 0.6;
+    }
+    if (this.liveData) this.updateLiveTelemetry(this.liveData);
+    this.updateParticlesAtTime(this.simSec);
+  }
+
+  updateParticlesAtTime(sec) {
+    const ts = this.plume.times_sec;
+    const clamped = THREE.MathUtils.clamp(sec, 0, this.maxSec);
+    // Find bracketing keyframes
+    let idx = 0;
+    while (idx < ts.length - 2 && ts[idx + 1] < clamped) idx++;
+    const t0 = ts[idx], t1 = ts[idx + 1];
+    const alpha = t1 > t0 ? (clamped - t0) / (t1 - t0) : 0;
+
+    const f0 = this.plume.frames[idx];
+    const f1 = this.plume.frames[idx + 1];
+    const N = this.plume.n_particles;
+    const regs = this.plume.regimes;
+    const pos = this.partPositions;
+    const col = this.partColors;
+    const exag = this.vertExag;
+    let airborneCount = 0;
+
+    for (let i = 0; i < N; i++) {
+      const j = i * 3;
+      const xKm = (f0[j] + (f1[j] - f0[j]) * alpha) * 0.01;       // 10m units -> km
+      const yNorth = (f0[j + 1] + (f1[j + 1] - f0[j + 1]) * alpha) * 0.01;
+      const zM = f0[j + 2] + (f1[j + 2] - f0[j + 2]) * alpha;      // meters AGL
+      const zKm = -yNorth;
+      const gndY = this.terrainY(xKm, zKm);
+
+      pos[j] = xKm;
+      pos[j + 1] = gndY + (zM / 1000.0) * exag + 0.04;
+      pos[j + 2] = zKm;
+      if (zM > 2.0) airborneCount++;
+
+      if (this.colorMode === 'regime') {
+        const r = regs[i];
+        if (r === 0) { col[j] = 1.0; col[j + 1] = 0.62; col[j + 2] = 0.14; }      // Coarse: bright amber-orange
+        else if (r === 1) { col[j] = 0.05; col[j + 1] = 0.88; col[j + 2] = 1.0; } // PM10: electric cyan
+        else { col[j] = 0.96; col[j + 1] = 0.32; col[j + 2] = 0.88; }             // PM2.5: vibrant magenta
+      } else {
+        // Altitude ramp (blue 0m -> green 250m -> yellow 550m -> red 900m+)
+        const hNorm = Math.min(1, zM / 900.0);
+        col[j] = Math.min(1, hNorm * 1.6);
+        col[j + 1] = 1.0 - Math.abs(hNorm - 0.5) * 1.4;
+        col[j + 2] = Math.max(0.1, 1.0 - hNorm * 1.5);
+      }
+      // Slightly dim deposited surface particles
+      if (zM <= 1.0) { col[j] *= 0.45; col[j + 1] *= 0.45; col[j + 2] *= 0.45; }
+    }
+    this.points.geometry.attributes.position.needsUpdate = true;
+    this.points.geometry.attributes.color.needsUpdate = true;
+
+    // Update dynamic PBL ceiling height!
+    const pblM = this.plume.pbl_m[idx] + (this.plume.pbl_m[idx + 1] - this.plume.pbl_m[idx]) * alpha;
+    if (this.pblMesh) {
+      this.pblMesh.position.y = (pblM / 1000.0) * exag;
+      this.pblLbl.position.y = (pblM / 1000.0) * exag + 0.45;
+    }
+
+    if (this.cb.onTick) {
+      this.cb.onTick(clamped, pblM, Math.round((airborneCount / N) * 100));
+    }
+  }
+
+  setBaseMap(mode) {
+    this.terrainMat.map = mode === 'sat' ? this.textures.sat : this.textures.dark;
+    this.terrainMat.needsUpdate = true;
+  }
+
+  setDrape(mode) {
+    if (mode === 'none') {
+      this.drapeMesh.visible = false;
+    } else {
+      this.drapeMesh.visible = true;
+      this.drapeMat.map = this.textures[mode];
+      this.drapeMat.needsUpdate = true;
+    }
+  }
+
+  setColorMode(mode) {
+    this.colorMode = mode;
+    this.updateParticlesAtTime(this.simSec);
+  }
+
+  setLayerVisible(name, vis) {
+    if (name === 'sightlines') this.sightlineGroup.visible = vis;
+    if (name === 'sensors') this.sensorGroup.visible = vis;
+    if (name === 'winds') this.windGroup.visible = vis;
+    if (name === 'lids') this.lidGroup.visible = vis;
+    if (name === 'labels') this.labelGroup.visible = vis;
+  }
+
+  flyToPreset(preset) {
+    const s = this.staticData;
+    if (preset === 'overview') {
+      this.cameraPosGoal = new THREE.Vector3(22, 22, 31);
+      this.cameraTargetGoal = new THREE.Vector3(-15, 1.5, 11);
+    } else if (preset === 'kwqc') {
+      // Exact KWQC Cam 1 viewpoint on 190th Ave looking SSE across FAA Tower T3!
+      const c1 = s.cam1_kwqc;
+      this.cameraPosGoal = new THREE.Vector3(c1.x_km, this.terrainY(c1.x_km, -c1.y_km) + 0.35, -c1.y_km);
+      this.cameraTargetGoal = new THREE.Vector3(0, 0.12 * this.vertExag, 0);
+      this.simSec = 25; this.updateParticlesAtTime(this.simSec);
+    } else if (preset === 'kcrg') {
+      // Exact KCRG/AP Cam 2 viewpoint at 9856 202nd Ave looking ESE!
+      const c2 = s.cam2_kcrg;
+      this.cameraPosGoal = new THREE.Vector3(c2.x_km, this.terrainY(c2.x_km, -c2.y_km) + 0.35, -c2.y_km);
+      this.cameraTargetGoal = new THREE.Vector3(0, 0.22 * this.vertExag, 0);
+      this.simSec = 45; this.updateParticlesAtTime(this.simSec);
+    } else if (preset === 'shear') {
+      // Dramatic side cross-section showing vertical wind shear & inversion cap!
+      this.cameraPosGoal = new THREE.Vector3(-8, 6.5, 44);
+      this.cameraTargetGoal = new THREE.Vector3(-22, 4.5, 12);
+    } else if (preset === 'top') {
+      this.cameraPosGoal = new THREE.Vector3(-22, 74, 15.5);
+      this.cameraTargetGoal = new THREE.Vector3(-22, 0, 15);
+    }
+  }
+
+  _animate() {
+    requestAnimationFrame(() => this._animate());
+    const dt = Math.min(this.clock.getDelta(), 0.1);
+
+    if (this.playing) {
+      // Adaptive time pace: slower during dramatic first 2 minutes so users see dual-bunker ascent, faster over 4 hours!
+      const pace = this.simSec < 120 ? this.speedMul * 0.25 : this.speedMul * 4.5;
+      this.simSec += dt * pace;
+      if (this.simSec > this.maxSec) this.simSec = 0;
+      this.updateParticlesAtTime(this.simSec);
+    }
+
+    if (this.cameraPosGoal && this.cameraTargetGoal) {
+      this.camera.position.lerp(this.cameraPosGoal, 0.08);
+      this.controls.target.lerp(this.cameraTargetGoal, 0.08);
+      if (this.camera.position.distanceTo(this.cameraPosGoal) < 0.08) {
+        this.cameraPosGoal = null;
+        this.cameraTargetGoal = null;
+      }
+    }
+
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+}
