@@ -437,15 +437,21 @@ def make_fig6_and_upgrade_html():
     c15_0p1 = peak_15m * (TOTAL_PB_KG * 0.001 * 1e9)
     log_c15 = np.where(c15_0p1 > 0.05, np.log10(np.maximum(c15_0p1, 1e-10)), -99.0)
 
-    def grid_to_uri(grid, vmin, vmax, cmap_name='inferno', alpha_max=0.72):
+    def grid_to_uri(grid, vmin, vmax, cmap_name='inferno', alpha_max=0.74):
         norm = np.clip((grid - vmin)/(vmax - vmin), 0.0, 1.0)
         rgba = plt.get_cmap(cmap_name)(norm)
-        rgba[..., 3] = np.where(grid < vmin, 0.0, np.clip(norm**0.55 * alpha_max + 0.12, 0.0, alpha_max))
+        # Smooth continuous feather to 0.0 alpha at low-concentration tail + gentle outer-border fade (zero box cutoff!)
+        alpha = np.where(grid <= vmin, 0.0, np.clip((norm ** 0.78) * alpha_max, 0.0, alpha_max))
+        ny, nx = grid.shape
+        fx = np.minimum(np.linspace(0, 1, nx) / 0.05, np.linspace(1, 0, nx) / 0.05)
+        fy = np.minimum(np.linspace(0, 1, ny) / 0.05, np.linspace(1, 0, ny) / 0.05)
+        edge_fade = np.clip(np.outer(np.clip(fy, 0, 1), np.clip(fx, 0, 1)), 0.0, 1.0)
+        rgba[..., 3] = alpha * edge_fade
         buf = io.BytesIO()
         Image.fromarray((np.flipud(rgba)*255).astype(np.uint8), mode='RGBA').save(buf, format='PNG')
         return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode('ascii')
 
-    m = folium.Map(location=[40.70, -91.42], zoom_start=10, tiles=None, control_scale=True)
+    m = folium.Map(location=[40.48, -91.78], zoom_start=9, tiles=None, control_scale=True)
     folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
                      attr='Esri Dark Gray Canvas', name='ESRI Dark Gray Canvas', show=True).add_to(m)
     folium.TileLayer(tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
@@ -467,6 +473,7 @@ def make_fig6_and_upgrade_html():
                    tooltip='Iowa Army Ammunition Plant (IAAAP)').add_to(fg_stereo)
     folium.Circle([LAT0, LON0], radius=5*1609.34, color='#ff4466', weight=1.8, dash_array='6,4', fill=False, tooltip='5-Mile Radius').add_to(fg_stereo)
     folium.Circle([LAT0, LON0], radius=20*1609.34, color='#ffaa44', weight=1.4, dash_array='8,6', fill=False, tooltip='20-Mile Radius').add_to(fg_stereo)
+    folium.Circle([LAT0, LON0], radius=50*1609.34, color='#64748b', weight=1.2, dash_array='6,8', fill=False, tooltip='50-Mile Radius').add_to(fg_stereo)
     # Dual-Camera Stereo Error Ellipse (~340m x 220m)
     th = np.linspace(0, 2*np.pi, 60)
     rad = math.radians(135.0)
@@ -514,14 +521,15 @@ def make_fig6_and_upgrade_html():
         folium.PolyLine([[w['lat'], w['lon']], [w['lat']+dlat, w['lon']+dlon]], color='#ffdd44', weight=3).add_to(fg_wx)
     fg_wx.add_to(m)
 
-    folium.LayerControl(collapsed=False).add_to(m)
+    folium.LayerControl(collapsed=True).add_to(m)
     legend_html = """
     <div style="position: fixed; bottom: 25px; left: 25px; z-index: 9999; background: rgba(14,17,23,0.92);
-                color: #eee; padding: 12px 14px; border-radius: 8px; border: 1px solid #555; font-family: sans-serif; font-size: 12px; max-width: 330px;">
-      <div style="font-weight: bold; font-size: 13px; color: #ffdd44; margin-bottom: 6px;">IAAAP Stereo Triangulation & Dispersion (Nov 25, 2026)</div>
+                color: #eee; padding: 11px 13px; border-radius: 8px; border: 1px solid #555; font-family: sans-serif; font-size: 11.5px; max-width: 310px;">
+      <div style="font-weight: bold; font-size: 12.5px; color: #ffdd44; margin-bottom: 5px;">IAAAP Stereo Origin &amp; 5-Hr Dispersion Path (Nov 25, 2026)</div>
       <div><b>Stereo Origin:</b> 40.810°N, -91.267°W (±250 m, 46.3° baseline)</div>
-      <div><b>Cameras:</b> KWQC (190th Ave) + KCRG/AP (9856 202nd Ave)</div>
-      <div><b>Live EPA Xact (to 16:21Z):</b> Near-zero/background at AS01–04 ⇒ constrains airborne Pb release to <b>≲ 0.01%</b> of inventory.</div>
+      <div><b>Simulated Path (0–5 hr):</b> SW–WSW past Denmark, West Point, Donnellson, Kahoka &amp; Kirksville (fades by dilution)</div>
+      <div><b>Live EPA Xact:</b> Near-zero/baseline at AS01–04 ⇒ constrains airborne Pb escape to <b>≲ 0.013%</b> (&gt;99.95% contained).</div>
+      <div style="margin-top:4px;color:#93c5fd">Use top-right layer icon to switch Satellite, Deposition, or 0.1% Pb contours.</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))

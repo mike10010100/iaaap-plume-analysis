@@ -27,9 +27,10 @@ LAT0, LON0 = 40.8099, -91.2668
 M_PER_LAT = 111132.0
 M_PER_LON = 111320.0 * math.cos(math.radians(LAT0))
 
-# World box in km: x in [-64, +12] (76 km E-W), y in [-46, +14] (60 km N-S)
-WX_MIN, WX_MAX = -64.0, 12.0
-WY_MIN, WY_MAX = -46.0, 14.0
+# Widened 3D world box in km: x in [-168, +24] (192 km E-W), y in [-132, +24] (156 km N-S)
+# Covers from Burlington/Galesburg past Kirksville/Macon/Ottumwa/Quincy so the 5-hour plume fades naturally with zero box cutoff!
+WX_MIN, WX_MAX = -168.0, 24.0
+WY_MIN, WY_MAX = -132.0, 24.0
 LON_MIN = LON0 + (WX_MIN * 1000.0) / M_PER_LON
 LON_MAX = LON0 + (WX_MAX * 1000.0) / M_PER_LON
 LAT_MIN = LAT0 + (WY_MIN * 1000.0) / M_PER_LAT
@@ -64,22 +65,22 @@ def fetch_texture(url_tmpl, zoom=10, rgba=False):
 
 
 def build_textures():
-    print('Fetching ESRI Dark Gray & Satellite textures for 3D ground plane...')
-    dark_base = fetch_texture("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", zoom=10)
-    dark_ref  = fetch_texture("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", zoom=10, rgba=True)
+    print('Fetching widened ESRI Dark Gray & Satellite textures (192x156 km) for 3D ground plane...')
+    dark_base = fetch_texture("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", zoom=9)
+    dark_ref  = fetch_texture("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", zoom=9, rgba=True)
     dark = Image.alpha_composite(dark_base.convert('RGBA'), dark_ref).convert('RGB')
     dark.save(f'{REPO}/assets/textures/terrain_dark.jpg', quality=88)
 
-    sat = fetch_texture("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", zoom=10)
-    sat.save(f'{REPO}/assets/textures/terrain_sat.jpg', quality=85)
+    sat = fetch_texture("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", zoom=9)
+    sat.save(f'{REPO}/assets/textures/terrain_sat.jpg', quality=84)
 
     # Render exact-aligned transparent RGBA ground drapes for Exposure, Deposition, and Sensitivity!
     d0 = np.load(f'{SCRATCH}/data/dispersion_results.npz')
     ds = np.load(f'{SCRATCH}/data/sensitivity_results.npz')
 
-    def save_drape(grid_2d, gx_min, gx_max, gy_min, gy_max, out_path, mode='log', cmap='inferno', span=4.2, thresh_floor=1e-11):
-        # Resample onto 760x600 covering WX_MIN..WX_MAX, WY_MIN..WY_MAX (km)
-        W, H = 760, 600
+    def save_drape(grid_2d, gx_min, gx_max, gy_min, gy_max, out_path, mode='log', cmap='inferno', span=4.5, thresh_floor=1e-11):
+        # Resample onto 960x780 covering WX_MIN..WX_MAX, WY_MIN..WY_MAX (km)
+        W, H = 960, 780
         xs = np.linspace(WX_MIN * 1000.0, WX_MAX * 1000.0, W)
         ys = np.linspace(WY_MAX * 1000.0, WY_MIN * 1000.0, H) # row 0 = North (WY_MAX)
         ny, nx = grid_2d.shape
@@ -93,7 +94,7 @@ def build_textures():
         out_y = (ys < gy_min) | (ys > gy_max)
         sub[:, out_x] = 0.0
         sub[out_y, :] = 0.0
-        sub = gaussian_filter(sub, 2.0)
+        sub = gaussian_filter(sub, 2.2)
 
         if mode == 'log':
             lg = np.where(sub > thresh_floor, np.log10(np.maximum(sub, 1e-30)), -99.0)
@@ -102,7 +103,12 @@ def build_textures():
             vmin = vmax - span
             norm = np.clip((lg - vmin) / (vmax - vmin), 0.0, 1.0)
             rgba = plt.get_cmap(cmap)(norm)
-            rgba[..., 3] = np.where(lg < vmin, 0.0, np.clip(norm**0.55 * 0.80 + 0.10, 0.0, 0.82))
+            # Continuous feather to 0.0 alpha at tail + smooth 5% outer border fade (zero cutoff!)
+            alpha = np.where(lg <= vmin, 0.0, np.clip((norm ** 0.78) * 0.80, 0.0, 0.80))
+            fx = np.minimum(np.linspace(0, 1, W) / 0.05, np.linspace(1, 0, W) / 0.05)
+            fy = np.minimum(np.linspace(0, 1, H) / 0.05, np.linspace(1, 0, H) / 0.05)
+            edge_fade = np.clip(np.outer(np.clip(fy, 0, 1), np.clip(fx, 0, 1)), 0.0, 1.0)
+            rgba[..., 3] = alpha * edge_fade
             Image.fromarray((rgba * 255).astype(np.uint8), mode='RGBA').save(out_path)
         elif mode == 'sensitivity':
             # Discrete colored tiers for 5%, 1%, 0.1%, 0.01% Pb 15-min peak >= 0.15 ug/m3!
@@ -131,8 +137,8 @@ def build_textures():
 
 
 def build_dem():
-    print('Fetching real 3D elevation DEM grid (30x24 = 720 pts) from Open-Meteo Elevation API...')
-    NX, NY = 30, 24
+    print('Fetching widened real 3D elevation DEM grid (36x30 = 1080 pts) from Open-Meteo Elevation API...')
+    NX, NY = 36, 30
     xs = np.linspace(WX_MIN, WX_MAX, NX)
     ys = np.linspace(WY_MAX, WY_MIN, NY) # row 0 = North (matches Three.js PlaneGeometry!)
     lats_all, lons_all = [], []
@@ -224,11 +230,12 @@ def build_3d_particles():
     dth_ens = np.radians(rng.normal(0.0, 5.5, N))
     spd_ens = rng.normal(1.0, 0.08, N)
 
-    # Dense early keyframes (seconds/minutes) so users can inspect the exact KWQC/KCRG first-minute rise AND 4-hr regional sweep!
+    # Dense early keyframes (seconds/minutes) + full 5-hour regional sweep (0 -> 18,000 s)!
     kf_sec = [
         0, 10, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 780, 900, 1080, 1200,
         1500, 1800, 2100, 2400, 2700, 3000, 3300, 3600, 4200, 4800, 5400, 6000, 6600,
-        7200, 7800, 8400, 9000, 9600, 10200, 10800, 11400, 12000, 12600, 13200, 13800, 14400
+        7200, 7800, 8400, 9000, 9600, 10200, 10800, 11400, 12000, 12600, 13200, 13800, 14400,
+        15300, 16200, 17100, 18000
     ]
     kf_set = set(kf_sec)
     frames_xyz = []
@@ -246,9 +253,9 @@ def build_3d_particles():
     active = np.ones(N, dtype=np.bool_)
     snap(pbl_hr[0])
 
-    # Step dt=5s for first 120s (smooth early buoyant ascent!), then dt=15s up to 14,400s!
+    # Step dt=5s for first 120s (smooth early buoyant ascent!), then dt=15s up to 18,000s (5 hours)!
     t_cur = 0
-    while t_cur < 14400:
+    while t_cur < 18000:
         dt = 5.0 if t_cur < 120 else 15.0
         t_cur += int(dt)
         t_hr = t_cur / 3600.0

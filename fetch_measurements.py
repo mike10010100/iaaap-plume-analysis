@@ -592,7 +592,7 @@ def build_wind_assimilation(asos: dict, rwis: dict, om_hourly_raw: dict):
             # Slightly lower weight for road-height RWIS vs airport 10m ASOS
             obs_stations.append((k, rw["dist_km"], 0.65, rw.get("series_24h") or []))
 
-    times_min = list(range(0, 241, 10))
+    times_min = list(range(0, 301, 10))
     # First pass: compute inverse-distance-weighted observed surface wind at each 10-min step
     obs_uv = []
     obs_counts = []

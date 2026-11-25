@@ -59,10 +59,10 @@
     "dist_mi": 3.7,
     "bearing_deg": 190.6,
     "ens_prob_pct": 23.3,
-    "chi_over_Q_s_m3": 2.920000000000001e-09,
-    "dep_coarse_m2": 6.666666666666667e-11,
-    "dep_fine_m2": 8.148148148148147e-11,
-    "mean_arrival_min": 19.0
+    "chi_over_Q_s_m3": 4.3496296296296785e-09,
+    "dep_coarse_m2": 1.053497942386831e-10,
+    "dep_fine_m2": 1.51440329218107e-10,
+    "mean_arrival_min": 18.9
   },
   {
     "town": "Denmark, IA",
@@ -72,10 +72,10 @@
     "dist_mi": 6.1,
     "bearing_deg": 216.4,
     "ens_prob_pct": 86.7,
-    "chi_over_Q_s_m3": 3.8000000000000876e-08,
-    "dep_coarse_m2": 2.8888888888888886e-10,
-    "dep_fine_m2": 1.5481481481481479e-09,
-    "mean_arrival_min": 30.5
+    "chi_over_Q_s_m3": 3.393283950617427e-08,
+    "dep_coarse_m2": 3.094650205761316e-10,
+    "dep_fine_m2": 1.5242798353909465e-09,
+    "mean_arrival_min": 30.7
   },
   {
     "town": "West Point, IA",
@@ -85,10 +85,10 @@
     "dist_mi": 11.8,
     "bearing_deg": 237.6,
     "ens_prob_pct": 68.3,
-    "chi_over_Q_s_m3": 1.0397777777777762e-08,
-    "dep_coarse_m2": 1.0370370370370372e-10,
-    "dep_fine_m2": 5.185185185185186e-10,
-    "mean_arrival_min": 46.6
+    "chi_over_Q_s_m3": 8.847407407407436e-09,
+    "dep_coarse_m2": 8.888888888888889e-11,
+    "dep_fine_m2": 4.674897119341563e-10,
+    "mean_arrival_min": 46.5
   },
   {
     "town": "Fort Madison, IA",
@@ -98,10 +98,10 @@
     "dist_mi": 12.6,
     "bearing_deg": 192.0,
     "ens_prob_pct": 1.7,
-    "chi_over_Q_s_m3": 1.2222222222222225e-10,
+    "chi_over_Q_s_m3": 8.592592592592595e-11,
     "dep_coarse_m2": 0.0,
-    "dep_fine_m2": 7.407407407407408e-12,
-    "mean_arrival_min": 66.6
+    "dep_fine_m2": 3.2921810699588484e-12,
+    "mean_arrival_min": 65.1
   },
   {
     "town": "Houghton, IA",
@@ -124,10 +124,10 @@
     "dist_mi": 19.3,
     "bearing_deg": 233.2,
     "ens_prob_pct": 68.3,
-    "chi_over_Q_s_m3": 7.611111111111152e-09,
-    "dep_coarse_m2": 2.9629629629629634e-11,
-    "dep_fine_m2": 4.370370370370371e-10,
-    "mean_arrival_min": 76.2
+    "chi_over_Q_s_m3": 6.947160493827074e-09,
+    "dep_coarse_m2": 3.6213991769547334e-11,
+    "dep_fine_m2": 3.8847736625514404e-10,
+    "mean_arrival_min": 75.8
   },
   {
     "town": "Salem, IA",
@@ -150,10 +150,10 @@
     "dist_mi": 27.6,
     "bearing_deg": 245.2,
     "ens_prob_pct": 11.7,
-    "chi_over_Q_s_m3": 6.088888888888891e-10,
+    "chi_over_Q_s_m3": 5.007407407407409e-10,
     "dep_coarse_m2": 0.0,
-    "dep_fine_m2": 8.88888888888889e-11,
-    "mean_arrival_min": 97.7
+    "dep_fine_m2": 5.2674897119341574e-11,
+    "mean_arrival_min": 96.9
   },
   {
     "town": "Bonaparte, IA",
@@ -163,10 +163,10 @@
     "dist_mi": 29.2,
     "bearing_deg": 255.0,
     "ens_prob_pct": 1.7,
-    "chi_over_Q_s_m3": 3.111111111111112e-11,
+    "chi_over_Q_s_m3": 2.5679012345679014e-11,
     "dep_coarse_m2": 0.0,
     "dep_fine_m2": 0.0,
-    "mean_arrival_min": 93.6
+    "mean_arrival_min": 94.2
   },
   {
     "town": "Keosauqua, IA",
@@ -176,10 +176,10 @@
     "dist_mi": 36.9,
     "bearing_deg": 261.6,
     "ens_prob_pct": 0.0,
-    "chi_over_Q_s_m3": 1.3333333333333336e-11,
+    "chi_over_Q_s_m3": 1.1851851851851855e-11,
     "dep_coarse_m2": 0.0,
     "dep_fine_m2": 0.0,
-    "mean_arrival_min": 107.3
+    "mean_arrival_min": 107.7
   },
   {
     "town": "Keokuk, IA",
@@ -202,10 +202,10 @@
     "dist_mi": 35.8,
     "bearing_deg": 221.9,
     "ens_prob_pct": 18.3,
-    "chi_over_Q_s_m3": 8.888888888888892e-10,
-    "dep_coarse_m2": 0.0,
-    "dep_fine_m2": 1.4814814814814817e-11,
-    "mean_arrival_min": 128.4
+    "chi_over_Q_s_m3": 9.827160493827149e-10,
+    "dep_coarse_m2": 3.2921810699588484e-12,
+    "dep_fine_m2": 2.9629629629629634e-11,
+    "mean_arrival_min": 131.0
   },
   {
     "town": "Wayland, MO",
@@ -215,10 +215,10 @@
     "dist_mi": 33.3,
     "bearing_deg": 210.2,
     "ens_prob_pct": 3.3,
-    "chi_over_Q_s_m3": 5.111111111111112e-11,
+    "chi_over_Q_s_m3": 8.197530864197533e-11,
     "dep_coarse_m2": 0.0,
-    "dep_fine_m2": 1.4814814814814817e-11,
-    "mean_arrival_min": 130.1
+    "dep_fine_m2": 9.876543209876545e-12,
+    "mean_arrival_min": 127.3
   },
   {
     "town": "Memphis, MO",
@@ -227,6 +227,84 @@
     "dist_km": 85.6,
     "dist_mi": 53.2,
     "bearing_deg": 243.1,
+    "ens_prob_pct": 13.3,
+    "chi_over_Q_s_m3": 4.898765432098767e-10,
+    "dep_coarse_m2": 0.0,
+    "dep_fine_m2": 2.3045267489711937e-11,
+    "mean_arrival_min": 186.6
+  },
+  {
+    "town": "Bloomfield, IA",
+    "lat": 40.7517,
+    "lon": -92.415,
+    "dist_km": 97.1,
+    "dist_mi": 60.3,
+    "bearing_deg": 266.3,
+    "ens_prob_pct": 0.0,
+    "chi_over_Q_s_m3": 0.0,
+    "dep_coarse_m2": 0.0,
+    "dep_fine_m2": 0.0,
+    "mean_arrival_min": null
+  },
+  {
+    "town": "Lancaster, MO",
+    "lat": 40.5209,
+    "lon": -92.528,
+    "dist_km": 111.1,
+    "dist_mi": 69.0,
+    "bearing_deg": 253.3,
+    "ens_prob_pct": 1.7,
+    "chi_over_Q_s_m3": 1.975308641975309e-11,
+    "dep_coarse_m2": 0.0,
+    "dep_fine_m2": 0.0,
+    "mean_arrival_min": 221.7
+  },
+  {
+    "town": "Edina, MO",
+    "lat": 40.1675,
+    "lon": -92.1727,
+    "dist_km": 104.5,
+    "dist_mi": 64.9,
+    "bearing_deg": 227.1,
+    "ens_prob_pct": 11.7,
+    "chi_over_Q_s_m3": 1.8962962962962968e-10,
+    "dep_coarse_m2": 3.2921810699588484e-12,
+    "dep_fine_m2": 1.3168724279835393e-11,
+    "mean_arrival_min": 225.7
+  },
+  {
+    "town": "Kirksville, MO",
+    "lat": 40.1948,
+    "lon": -92.5832,
+    "dist_km": 130.3,
+    "dist_mi": 81.0,
+    "bearing_deg": 238.5,
+    "ens_prob_pct": 13.3,
+    "chi_over_Q_s_m3": 2.3209876543209884e-10,
+    "dep_coarse_m2": 0.0,
+    "dep_fine_m2": 9.876543209876545e-12,
+    "mean_arrival_min": 275.3
+  },
+  {
+    "town": "Ottumwa, IA",
+    "lat": 41.02,
+    "lon": -92.4113,
+    "dist_km": 99.4,
+    "dist_mi": 61.8,
+    "bearing_deg": 283.7,
+    "ens_prob_pct": 0.0,
+    "chi_over_Q_s_m3": 0.0,
+    "dep_coarse_m2": 0.0,
+    "dep_fine_m2": 0.0,
+    "mean_arrival_min": null
+  },
+  {
+    "town": "Quincy, IL",
+    "lat": 39.9356,
+    "lon": -91.4099,
+    "dist_km": 97.7,
+    "dist_mi": 60.7,
+    "bearing_deg": 187.2,
     "ens_prob_pct": 0.0,
     "chi_over_Q_s_m3": 0.0,
     "dep_coarse_m2": 0.0,

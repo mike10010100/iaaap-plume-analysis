@@ -131,10 +131,10 @@ def main():
     # Also include 25% of realizations with stronger KDVN-like easterly veering aloft (+12 deg above 200m)
     ens_veer_extra = np.radians(np.where(rng.random(n_ens) < 0.30, rng.uniform(6.0, 16.0, n_ens), 0.0))[ens_id]
 
-    # 3. Define output grids (Local near-field 250m grid & Regional 500m grid)
-    # Regional grid: x in [-72 km, +12 km], y in [-52 km, +18 km] (resolution 500m -> 168 x 140)
-    RX_MIN, RX_MAX, R_DX = -72000.0, 12000.0, 500.0
-    RY_MIN, RY_MAX, R_DY = -52000.0, 18000.0, 500.0
+    # 3. Define output grids (Local near-field 150m grid & Widened Regional 750m grid: 192 x 156 km -> zero cutoff!)
+    # Regional grid: x in [-168 km, +24 km], y in [-132 km, +24 km] (resolution 750m -> 256 x 208)
+    RX_MIN, RX_MAX, R_DX = -168000.0, 24000.0, 750.0
+    RY_MIN, RY_MAX, R_DY = -132000.0, 24000.0, 750.0
     RNX = int((RX_MAX - RX_MIN) / R_DX)
     RNY = int((RY_MAX - RY_MIN) / R_DY)
 
@@ -162,9 +162,9 @@ def main():
     PNX, PNY = int((RX_MAX - RX_MIN)/P_DX), int((RY_MAX - RY_MIN)/P_DX)
     ens_hit = np.zeros((n_ens, PNY, PNX), dtype=np.bool_)
 
-    # 4. Time-stepping integration: 4 hours (14,400 s) with dt = 15 s (960 steps)
+    # 4. Time-stepping integration: 5 hours (18,000 s, 15:00Z -> 20:00Z) with dt = 15 s (1200 steps)
     DT = 15.0
-    N_STEPS = 960
+    N_STEPS = 1200
     active = np.ones(N, dtype=np.bool_)
     deposited = np.zeros(N, dtype=np.bool_)
     # Dry deposition reflection probability for fine particles touching z <= 0 (imperfect reflection -> realistic dry dep!)
@@ -353,6 +353,12 @@ def main():
         ('Kahoka, MO',          40.4220, -91.7218),
         ('Wayland, MO',         40.3917, -91.5846),
         ('Memphis, MO',         40.4595, -92.1707),
+        ('Bloomfield, IA',      40.7517, -92.4150),
+        ('Lancaster, MO',       40.5209, -92.5280),
+        ('Edina, MO',           40.1675, -92.1727),
+        ('Kirksville, MO',      40.1948, -92.5832),
+        ('Ottumwa, IA',         41.0200, -92.4113),
+        ('Quincy, IL',          39.9356, -91.4099),
     ]
     print('\n=== COMMUNITY DISPERSION IMPACT & ARRIVAL SUMMARY ===')
     town_rows = []

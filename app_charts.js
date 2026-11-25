@@ -317,7 +317,7 @@ function buildEpaLiveHud() {
   if (!container || !state.liveData || !state.staticData) return;
   container.innerHTML = '';
 
-  const maxSec = 14400; // 240 min
+  const maxSec = 18000; // 300 min (5h: 15:00Z -> 20:00Z)
   const latestObsSec = getLatestObsSec();
   const latestObsMin = Math.round(latestObsSec / 60);
   const latestUtc = (state.liveData.summary?.xact_latest_obs_utc || '').slice(11, 16) || 'latest';
@@ -328,10 +328,10 @@ function buildEpaLiveHud() {
   const tzLive = document.getElementById('tz-live-lbl');
   const tzProj = document.getElementById('tz-proj-lbl');
   if (tzLive) tzLive.textContent = `● Live EPA Obs Window (0 → ${latestObsMin}m · ${latestUtc}Z)`;
-  if (tzProj) tzProj.textContent = latestObsMin < 240 ? `◆ Projection Only (>${latestUtc}Z → +4h)` : '● Full 4h Observed';
+  if (tzProj) tzProj.textContent = latestObsMin < 300 ? `◆ Projection Only (>${latestUtc}Z → +5h)` : '● Full 5h Observed';
 
   const W = 156, H = 26;
-  const xOfMin = (m) => Math.max(0, Math.min(W, (m / 240.0) * W));
+  const xOfMin = (m) => Math.max(0, Math.min(W, (m / 300.0) * W));
   const liveEndX = xOfMin(latestObsMin);
 
   for (const sid of ['AS01', 'AS02', 'AS03', 'AS04']) {
@@ -350,7 +350,7 @@ function buildEpaLiveHud() {
     }
 
     // Build live EPA Xact observation stems/dots across T >= 0
-    const postObs = (live.series || []).filter((r) => r.min_post_blast >= 0 && r.min_post_blast <= 240);
+    const postObs = (live.series || []).filter((r) => r.min_post_blast >= 0 && r.min_post_blast <= 300);
     const obsSvg = postObs.map((r) => {
       const x = xOfMin(r.min_post_blast).toFixed(1);
       if (r.value > 0) {
@@ -415,7 +415,7 @@ function buildEpaLiveHud() {
 
 function updateEpaHudAtTime(sec, xactSnap, maxObsSec, windCutoffSec, plumeMode) {
   state.curSimSec = sec;
-  const maxSec = 14400;
+  const maxSec = 18000;
   const xPx = Math.max(0, Math.min(156, (sec / maxSec) * 156)).toFixed(1);
   const isBeyondEpa = sec > maxObsSec + 180;
   const isBeyondWind = sec > (windCutoffSec ?? maxObsSec) + 300;
@@ -807,7 +807,7 @@ async function boot() {
   });
   state.obs3d = obs;
   const qp = new URLSearchParams(window.location.search);
-  if (qp.has('t')) obs.simSec = Math.max(0, Math.min(14400, Number(qp.get('t')) || 0));
+  if (qp.has('t')) obs.simSec = Math.max(0, Math.min(18000, Number(qp.get('t')) || 0));
   if (qp.get('paused') === '1') obs.playing = false;
   if (qp.get('mode') === 'forecast') obs.plumeMode = 'forecast';
   await obs.init(state.staticData, demData, plumeData, state.liveData);

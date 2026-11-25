@@ -101,13 +101,13 @@ def main():
     PLON = LON0 + PXG / M_PER_LON
 
     # ============================================================
-    # FIGURE 3: REGIONAL DISPERSION & DEPOSITION HEATMAP (2-PANEL)
+    # FIGURE 3: WIDENED REGIONAL DISPERSION & DEPOSITION HEATMAP (2-PANEL)
     # ============================================================
-    lat_min, lat_max, lon_min, lon_max = 40.34, 40.96, -92.12, -91.02
+    lat_min, lat_max, lon_min, lon_max = 39.85, 41.02, -93.05, -91.02
     # ESRI World Dark Gray Base + Dark Gray Reference (free, zero API key, crisp rivers/highways/counties!)
     esri_dark_base = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
     esri_dark_ref  = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-    base_reg, to_px_r = fetch_basemap(lat_min, lat_max, lon_min, lon_max, 10, esri_dark_base)
+    base_reg, to_px_r = fetch_basemap(lat_min, lat_max, lon_min, lon_max, 9, esri_dark_base)
     # Fetch crisp road/river/border reference overlay and blend subtly
     def fetch_rgba_overlay(lat_min, lat_max, lon_min, lon_max, zoom, url_tmpl):
         x0, y0 = deg2num(lat_max, lon_min, zoom)
@@ -126,7 +126,7 @@ def main():
         px0, py0 = (x0-ix0)*256, (y0-iy0)*256
         px1, py1 = (x1-ix0)*256, (y1-iy0)*256
         return canvas.crop((int(px0), int(py0), int(px1), int(py1)))
-    ref_reg = fetch_rgba_overlay(lat_min, lat_max, lon_min, lon_max, 10, esri_dark_ref)
+    ref_reg = fetch_rgba_overlay(lat_min, lat_max, lon_min, lon_max, 9, esri_dark_ref)
     base_reg = Image.alpha_composite(base_reg.convert('RGBA'), ref_reg).convert('RGB')
     PX_r, PY_r = to_px_r(RLAT, RLON)
     PPX_r, PPY_r = to_px_r(PLAT, PLON)
@@ -175,14 +175,17 @@ def main():
     ax1.plot(cx_p, cy_p, 's', color='#00e5ff', ms=6.5, mec='white', zorder=11, label='KWQC Camera (190th Ave, ENE Danville)')
     ax1.plot([cx_p, ox], [cy_p, oy], color='#00e5ff', lw=1.2, ls='-', alpha=0.85, zorder=10)
 
-    # Label key towns cleanly
-    key_towns = ['Middletown, IA', 'Danville, IA', 'Burlington, IA', 'West Point, IA', 'Fort Madison, IA',
-                 'Donnellson, IA', 'Farmington, IA', 'Bonaparte, IA', 'Keosauqua, IA', 'Keokuk, IA', 'Kahoka, MO', 'Houghton, IA']
+    # Label key towns cleanly (skipping Ottumwa/Quincy already labeled on ESRI Reference near edges!)
+    key_towns = ['Middletown, IA', 'Burlington, IA', 'West Point, IA', 'Fort Madison, IA',
+                 'Donnellson, IA', 'Farmington, IA', 'Keosauqua, IA', 'Keokuk, IA',
+                 'Kahoka, MO', 'Memphis, MO', 'Edina, MO', 'Kirksville, MO', 'Bloomfield, IA']
     t_off = {
-        'Middletown, IA': (8, -12), 'Danville, IA': (-48, -10), 'Burlington, IA': (6, -6),
+        'Middletown, IA': (8, -12), 'Burlington, IA': (6, -6),
         'West Point, IA': (6, -10), 'Fort Madison, IA': (8, 4), 'Donnellson, IA': (8, 4),
-        'Farmington, IA': (-58, 12), 'Bonaparte, IA': (-54, -10), 'Keosauqua, IA': (-58, -10),
-        'Keokuk, IA': (8, 4), 'Kahoka, MO': (8, 6), 'Houghton, IA': (-20, -12)
+        'Farmington, IA': (-54, 12), 'Keosauqua, IA': (-54, -10),
+        'Keokuk, IA': (8, 4), 'Kahoka, MO': (8, 6), 'Memphis, MO': (-46, -10),
+        'Edina, MO': (8, 4), 'Kirksville, MO': (-58, 12), 'Bloomfield, IA': (-54, -10),
+        'Ottumwa, IA': (-48, -10), 'Quincy, IL': (8, 4),
     }
     for tr in towns:
         if tr['town'] in key_towns:
@@ -197,7 +200,7 @@ def main():
     cb1.set_label('Breathing-Zone Integrated Exposure Factor  log₁₀(χ/Q)  [s/m³ per unit mass released]  —  Contours: Ensemble Hit Probability (%)',
                   color='#ddd', fontsize=8.5)
     cb1.ax.tick_params(colors='#ccc', labelsize=8)
-    ax1.set_title('A. Airborne Plume Dispersion Heatmap (0–50 m AGL, 0–4 hr) & EPA Monitors', color='white', fontsize=11.5, weight='bold', pad=8)
+    ax1.set_title('A. Airborne Plume Dispersion Heatmap (0–50 m AGL, 0–5 hr) & EPA Monitors', color='white', fontsize=11.5, weight='bold', pad=8)
     ax1.legend(facecolor='#0e1117', edgecolor='#555', labelcolor='white', fontsize=7.8, loc='lower right')
     ax1.set_xlim(0, base_reg.width); ax1.set_ylim(base_reg.height, 0); ax1.axis('off')
 
@@ -261,7 +264,7 @@ def main():
     ax2.legend(facecolor='#0e1117', edgecolor='#555', labelcolor='white', fontsize=7.8, loc='upper left')
     ax2.set_xlim(0, base_reg.width); ax2.set_ylim(base_reg.height, 0); ax2.axis('off')
 
-    fig.suptitle('Modeled Dispersion & Deposition Heatmaps — IAAAP Controlled Detonation (Nov 25, 2026 | 9:00 AM–1:00 PM CST)',
+    fig.suptitle('Modeled Dispersion & Deposition Heatmaps — IAAAP Controlled Detonation (Nov 25, 2026 | 9:00 AM–2:00 PM CST)',
                  color='white', fontsize=14, weight='bold', y=0.955)
     fig.text(0.5, 0.915, '60,000-Particle 3D Lagrangian Ensemble (60 Wind/Source Realizations) | Driven by Observed Regional ASOS + 15Z–20Z Vertical Wind Shear + Video-Calibrated Plume Rise',
              color='#aac4dd', fontsize=9.8, ha='center')

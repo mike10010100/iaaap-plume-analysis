@@ -132,11 +132,11 @@ def main():
     ens_dtheta = np.radians(rng.normal(0.0, 6.0, n_ens))[ens_id]
     ens_spd = rng.normal(1.0, 0.09, n_ens)[ens_id]
 
-    # Regional grid (500m) for 1-hr peak, 24-hr avg, and integrated chi/Q screening contours!
-    RX_MIN, RX_MAX, R_DX = -72000.0, 12000.0, 500.0
-    RY_MIN, RY_MAX, R_DY = -52000.0, 18000.0, 500.0
+    # Widened Regional grid (750m, 192 x 156 km) so plume fades out naturally with zero box cutoff!
+    RX_MIN, RX_MAX, R_DX = -168000.0, 24000.0, 750.0
+    RY_MIN, RY_MAX, R_DY = -132000.0, 24000.0, 750.0
     RNX, RNY = int((RX_MAX - RX_MIN)/R_DX), int((RY_MAX - RY_MIN)/R_DY)
-    chi_Q_reg = np.zeros((RNY, RNX), dtype=np.float64)    # s/m^3 integrated over 4 hours
+    chi_Q_reg = np.zeros((RNY, RNX), dtype=np.float64)    # s/m^3 integrated over 5 hours
     peak_15m_Q_reg = np.zeros((RNY, RNX), dtype=np.float64) # peak 15-min avg C/Q (m^-3)!
     cur_15m_Q_reg  = np.zeros((RNY, RNX), dtype=np.float64)
 
@@ -151,7 +151,7 @@ def main():
     VOL_REG = R_DX * R_DY * Z_BREATH
 
     DT = 15.0
-    N_STEPS = 960 # 4 hours
+    N_STEPS = 1200 # 5 hours (15:00Z -> 20:00Z)
     active = np.ones(N, dtype=np.bool_)
     w_all = 1.0 / N
     w_ens = float(n_ens) / N # weight of each particle WITHIN its single ensemble member!

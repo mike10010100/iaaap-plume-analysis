@@ -16,7 +16,7 @@ export class Plume3DObservatory {
     this.playing = true;
     this.speedMul = 20.0; // 20x speed -> 4 hours plays cleanly in ~25 seconds (slower early!)
     this.simSec = 660.0;  // Start at T+11m right as projected plume crosses AS01 (live 0.0021 ug/m3 trace!)
-    this.maxSec = 14400.0;
+    this.maxSec = 18000.0;
     this.colorMode = 'regime'; // 'regime' | 'altitude'
     this.plumeMode = 'assimilated'; // 'assimilated' | 'forecast'
     this.pickables = [];
@@ -41,11 +41,11 @@ export class Plume3DObservatory {
   _initRenderer() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x060a10);
-    this.scene.fog = new THREE.FogExp2(0x060a10, 0.0042);
+    this.scene.fog = new THREE.FogExp2(0x060a10, 0.0018);
 
     const w = this.canvas.clientWidth || 1200;
     const h = this.canvas.clientHeight || 700;
-    this.camera = new THREE.PerspectiveCamera(46, w / h, 0.05, 400);
+    this.camera = new THREE.PerspectiveCamera(46, w / h, 0.05, 700);
     this.camera.position.set(22, 22, 31);
 
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
@@ -57,7 +57,7 @@ export class Plume3DObservatory {
     this.controls.dampingFactor = 0.07;
     this.controls.maxPolarAngle = Math.PI * 0.492;
     this.controls.minDistance = 0.8;
-    this.controls.maxDistance = 135;
+    this.controls.maxDistance = 300;
     this.controls.target.set(-14, 1.5, 11);
     this.controls.update();
 
@@ -265,7 +265,8 @@ export class Plume3DObservatory {
 
     snap(pblArr[0]);
     let tCur = 0;
-    while (tCur < 14400) {
+    const tEnd = this.maxSec || 18000;
+    while (tCur < tEnd) {
       const dt = tCur < 120 ? 5.0 : 30.0;
       tCur += dt;
       const tMin = tCur / 60.0;
@@ -378,8 +379,8 @@ export class Plume3DObservatory {
     this.drapeMesh.position.set(cx, 0.06, cz);
     this.scene.add(this.drapeMesh);
 
-    // Subtle metric coordinate grid around ground
-    const grid = new THREE.GridHelper(110, 22, 0x1e2d42, 0x121c2a);
+    // Subtle metric coordinate grid around widened ground
+    const grid = new THREE.GridHelper(Math.max(W, H) * 1.15, 24, 0x1e2d42, 0x121c2a);
     grid.position.set(cx, -0.8, cz);
     this.scene.add(grid);
   }
@@ -585,9 +586,10 @@ export class Plume3DObservatory {
     this.sightlineGroup.add(t3Lbl);
     this.towerT3Label = t3Lbl;
 
-    // 5. Key Towns 3D Labels
+    // 5. Key Towns 3D Labels (including widened NE Missouri / SE Iowa far-downwind towns!)
     const showTowns = new Set(['Middletown, IA', 'Danville, IA', 'Burlington, IA', 'Augusta, IA', 'Denmark, IA',
-                               'West Point, IA', 'Fort Madison, IA', 'Donnellson, IA', 'Farmington, IA', 'Kahoka, MO', 'Keokuk, IA']);
+                               'West Point, IA', 'Fort Madison, IA', 'Donnellson, IA', 'Farmington, IA', 'Kahoka, MO',
+                               'Keokuk, IA', 'Memphis, MO', 'Bloomfield, IA', 'Edina, MO', 'Kirksville, MO', 'Ottumwa, IA', 'Quincy, IL']);
     for (const t of s.towns) {
       if (!showTowns.has(t.town)) continue;
       const short = t.town.replace(', IA', '').replace(', MO', ' (MO)');
@@ -634,7 +636,11 @@ export class Plume3DObservatory {
   }
 
   _buildAtmosphericLids() {
-    const W = 76, H = 60, cx = -26, cz = 16;
+    const { wx_min_km, wx_max_km, wy_min_km, wy_max_km } = this.dem;
+    const W = wx_max_km - wx_min_km;
+    const H = wy_max_km - wy_min_km;
+    const cx = (wx_min_km + wx_max_km) / 2;
+    const cz = -(wy_min_km + wy_max_km) / 2;
     // Dynamic Morning PBL Ceiling Plane (translucent emerald green!)
     const pblGeo = new THREE.PlaneGeometry(W, H);
     pblGeo.rotateX(-Math.PI / 2);
@@ -1098,8 +1104,8 @@ export class Plume3DObservatory {
       this.cameraPosGoal = new THREE.Vector3(-8, 6.5, 44);
       this.cameraTargetGoal = new THREE.Vector3(-22, 4.5, 12);
     } else if (preset === 'top') {
-      this.cameraPosGoal = new THREE.Vector3(-22, 74, 15.5);
-      this.cameraTargetGoal = new THREE.Vector3(-22, 0, 15);
+      this.cameraPosGoal = new THREE.Vector3(-56, 175, 42);
+      this.cameraTargetGoal = new THREE.Vector3(-56, 0, 41.5);
     }
   }
 
