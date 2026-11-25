@@ -386,6 +386,14 @@ def run_fetch(push: bool = False):
         "source_errors": errors,
     }
 
+    if push:
+        # Sync with origin/main first in case a manual workflow_dispatch run updated remote
+        try:
+            env = dict(os.environ, PATH=f"/home/mike10010100/.gemini/antigravity-cli/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{os.environ.get('PATH', '/usr/bin:/bin')}")
+            subprocess.run(["git", "-C", str(BASE_DIR), "pull", "--ff-only", "origin", "main"], env=env, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
     # Check whether actual measurements changed vs previous live_telemetry.json
     changed = True
     if LIVE_BUNDLE_FILE.exists():

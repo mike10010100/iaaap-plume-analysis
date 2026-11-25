@@ -17,7 +17,7 @@ An end-to-end open-source intelligence (OSINT) and atmospheric dispersion benchm
   - Compares live EPA Region 7 Xact telemetry (`AS01–AS04`) against modeled arrival curves to place an inverse upper bound on actual airborne respirable lead escape (`≲ 0.013%–0.047%`, i.e., `>99.95%` containment).
 - **Auto-Updating Telemetry Daemon (`fetch_measurements.py`, `.github/workflows/update-telemetry.yml`)**:
   - Pure Python 3 standard-library fetcher polling EPA Region 7 Xact live lead monitors, EPA's 43-station registry, 10 regional ASOS airports, 6 Iowa DOT RWIS highway stations, and Open-Meteo vertical meteorology + regional AQ.
-  - Runs automatically every 10 minutes via local `systemd --user` timer (`iaaap-plume-updater.timer`) and every 15 minutes via GitHub Actions, archiving deduplicated `.json.gz` snapshots and pushing `site_data/live_telemetry.json` only when actual measurements change.
+  - Runs automatically every 10 minutes via local `systemd --user` timer (`iaaap-plume-updater.timer`) as the sole git pusher (with manual `workflow_dispatch` fallback in GitHub Actions), archiving deduplicated `.json.gz` snapshots and pushing `site_data/live_telemetry.json` only when actual measurements change.
 
 ## Local Development
 ```bash

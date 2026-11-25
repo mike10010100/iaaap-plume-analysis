@@ -1,8 +1,6 @@
-name: Auto-Update Live IAAAP Telemetry
+name: Auto-Update Live IAAAP Telemetry (Manual Fallback)
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
