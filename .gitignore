@@ -5,6 +5,7 @@ data/snapshots/
 data/updater.log
 data/latest_measurements.json
 data/timeseries_archive.json.gz
+data/.fetch.lock
 *.mkv
 *.mp4
 *.webm

@@ -21,6 +21,7 @@ Pure Python 3 standard library — zero external dependencies.
 import argparse
 import csv
 import datetime
+import fcntl
 import gzip
 import io
 import json
@@ -28,6 +29,7 @@ import math
 import os
 import subprocess
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -55,6 +57,12 @@ AQ_POINTS = [
     ("West Point, IA",     40.717, -91.454),
     ("Donnellson, IA",     40.641, -91.560),
     ("Kahoka, MO",         40.422, -91.722),
+]
+SPATIAL_HRRR_NODES = [
+    ("IAAAP",      40.8099, -91.2668, 215.0),
+    ("Kahoka",     40.4220, -91.7218, 212.0),
+    ("Kirksville", 40.1948, -92.5832, 295.0),
+    ("Ottumwa",    41.0200, -92.4113, 258.0),
 ]
 Z_GRID_M = [10.0, 80.0, 120.0, 180.0, 250.0, 450.0, 665.0, 880.0, 1330.0]
 
@@ -534,73 +542,105 @@ def fetch_openmeteo_24h(archive: dict, now_utc: datetime.datetime):
             })
         aq_series[name] = ser
 
+    # Fetch batched 4-node NOAA HRRR 3 km vertical wind & PBL profiles across the 192x156 km domain!
+    hrrr_nodes_raw = {}
+    try:
+        n_lats = ",".join(str(p[1]) for p in SPATIAL_HRRR_NODES)
+        n_lons = ",".join(str(p[2]) for p in SPATIAL_HRRR_NODES)
+        url_hrrr = (
+            f"https://api.open-meteo.com/v1/forecast?latitude={n_lats}&longitude={n_lons}"
+            "&hourly=wind_speed_10m,wind_direction_10m,wind_speed_80m,wind_direction_80m,"
+            "boundary_layer_height,wind_speed_975hPa,wind_direction_975hPa,geopotential_height_975hPa,"
+            "wind_speed_950hPa,wind_direction_950hPa,geopotential_height_950hPa,"
+            "wind_speed_925hPa,wind_direction_925hPa,geopotential_height_925hPa,"
+            "wind_speed_900hPa,wind_direction_900hPa,geopotential_height_900hPa,"
+            "wind_speed_850hPa,wind_direction_850hPa,geopotential_height_850hPa"
+            "&models=ncep_hrrr_conus&wind_speed_unit=ms&timezone=UTC"
+            "&start_date=2026-11-25&end_date=2026-11-25"
+        )
+        h_raw = http_get_json(url_hrrr, timeout=25)
+        if isinstance(h_raw, dict):
+            h_raw = [h_raw]
+        for (nid, _, _, _), blk in zip(SPATIAL_HRRR_NODES, h_raw):
+            hrrr_nodes_raw[nid] = blk.get("hourly") or {}
+    except Exception:
+        pass
+
     archive["openmeteo_met"] = met_24h
     archive["openmeteo_aq"] = aq_series
     return {
         "iaaap_hourly_raw": wx_h,
+        "hrrr_nodes_raw": hrrr_nodes_raw,
         "met_24h": met_24h,
         "corridor_aq": aq_current,
         "corridor_aq_24h": aq_series,
     }
 
 
-def build_wind_assimilation(asos: dict, rwis: dict, om_hourly_raw: dict):
-    """
-    Build a 10-minute vertical wind profile (T=0 -> T=240m) assimilating real observed
-    ASOS + Iowa DOT RWIS winds up to the latest real-world observation (`observed_reanalysis`)
-    and smoothly relaxing to Open-Meteo forecast beyond (`forecast_projection`).
-    """
-    # Fallback to baseline data/openmeteo_iaaap.json if live Open-Meteo lacks pressure levels
-    om = om_hourly_raw or {}
-    if "geopotential_height_975hPa" not in om:
-        base_om_path = DATA_DIR / "openmeteo_iaaap.json"
-        if base_om_path.exists():
-            om = json.loads(base_om_path.read_text(encoding="utf-8")).get("hourly") or {}
-
-    hours_utc = [15, 16, 17, 18, 19, 20]
+def _extract_hourly_profile(om: dict, elev_m: float, hours_utc: list):
     times_om = om.get("time") or []
     u_hr, v_hr, pbl_hr = [], [], []
     for hr in hours_utc:
         key = f"2026-11-25T{hr:02d}:00"
         idx = times_om.index(key) if key in times_om else 0
-        pbl_hr.append(float((om.get("boundary_layer_height") or [300.0])[idx] or 300.0))
-        lvls = [
-            (10.0,  om["wind_speed_10m"][idx],  om["wind_direction_10m"][idx]),
-            (80.0,  om["wind_speed_80m"][idx],  om["wind_direction_80m"][idx]),
-            (120.0, om["wind_speed_120m"][idx], om["wind_direction_120m"][idx]),
-            (180.0, om["wind_speed_180m"][idx], om["wind_direction_180m"][idx]),
-            (om["geopotential_height_975hPa"][idx] - ELEV_M, om["wind_speed_975hPa"][idx], om["wind_direction_975hPa"][idx]),
-            (om["geopotential_height_950hPa"][idx] - ELEV_M, om["wind_speed_950hPa"][idx], om["wind_direction_950hPa"][idx]),
-            (om["geopotential_height_925hPa"][idx] - ELEV_M, om["wind_speed_925hPa"][idx], om["wind_direction_925hPa"][idx]),
-            (om["geopotential_height_900hPa"][idx] - ELEV_M, om["wind_speed_900hPa"][idx], om["wind_direction_900hPa"][idx]),
-            (om["geopotential_height_850hPa"][idx] - ELEV_M, om["wind_speed_850hPa"][idx], om["wind_direction_850hPa"][idx]),
+        def g(k):
+            arr = om.get(k)
+            return arr[idx] if (arr and idx < len(arr)) else None
+        pbl_val = g("boundary_layer_height")
+        pbl_hr.append(float(pbl_val if pbl_val is not None else 300.0))
+        cand = [
+            (10.0,  g("wind_speed_10m"),  g("wind_direction_10m")),
+            (80.0,  g("wind_speed_80m"),  g("wind_direction_80m")),
+            (120.0, g("wind_speed_120m"), g("wind_direction_120m")),
+            (180.0, g("wind_speed_180m"), g("wind_direction_180m")),
         ]
+        for p_lbl in ("975hPa", "950hPa", "925hPa", "900hPa", "850hPa"):
+            gh = g(f"geopotential_height_{p_lbl}")
+            ws = g(f"wind_speed_{p_lbl}")
+            wd = g(f"wind_direction_{p_lbl}")
+            if gh is not None and ws is not None and wd is not None:
+                cand.append((max(15.0, float(gh) - elev_m), float(ws), float(wd)))
+        lvls = [(float(z), float(ws), float(wd)) for (z, ws, wd) in cand if ws is not None and wd is not None]
         lvls.sort(key=lambda x: x[0])
+        if not lvls:
+            lvls = [(10.0, 4.0, 45.0), (1330.0, 8.0, 55.0)]
         zs = [x[0] for x in lvls]
         us = [wind_from_to_uv(x[2], x[1])[0] for x in lvls]
         vs = [wind_from_to_uv(x[2], x[1])[1] for x in lvls]
         u_hr.append([lin_interp(z, zs, us) for z in Z_GRID_M])
         v_hr.append([lin_interp(z, zs, vs) for z in Z_GRID_M])
+    return u_hr, v_hr, pbl_hr
 
-    # Collect nearby surface observations (within 85 km of IAAAP) from ASOS + RWIS
-    obs_stations = []
-    for k, st in (asos or {}).items():
-        if st.get("dist_km", 999) <= 85.0:
-            obs_stations.append((k, st["dist_km"], 1.0, st.get("series_24h") or []))
-    for k, rw in (rwis or {}).items():
-        if rw.get("dist_km", 999) <= 85.0:
-            # Slightly lower weight for road-height RWIS vs airport 10m ASOS
-            obs_stations.append((k, rw["dist_km"], 0.65, rw.get("series_24h") or []))
 
+def build_wind_assimilation(asos: dict, rwis: dict, om_hourly_raw: dict, hrrr_nodes_raw: dict = None):
+    """
+    Build a 4-node spatially varying 10-minute vertical wind field (T=0 -> T=300m) combining
+    NOAA HRRR 3 km (`ncep_hrrr_conus`) across IAAAP, Kahoka, Kirksville, and Ottumwa with
+    local inverse-distance-weighted live ASOS + RWIS surface observations (`observed_reanalysis`
+    up to obs_cutoff_min, smoothly relaxing into HRRR 3 km forecast beyond).
+    """
+    fallback_om = om_hourly_raw or {}
+    if "geopotential_height_975hPa" not in fallback_om:
+        base_om_path = DATA_DIR / "openmeteo_iaaap.json"
+        if base_om_path.exists():
+            fallback_om = json.loads(base_om_path.read_text(encoding="utf-8")).get("hourly") or {}
+
+    hours_utc = [15, 16, 17, 18, 19, 20]
     times_min = list(range(0, 301, 10))
-    # First pass: compute inverse-distance-weighted observed surface wind at each 10-min step
-    obs_uv = []
-    obs_counts = []
-    obs_cutoff_min = 0
-    for tm in times_min:
-        wsum, usum, vsum, cnt = 0.0, 0.0, 0.0, 0
-        for _, dkm, net_w, ser in obs_stations:
-            # Find nearest valid wind observation within +/-18 minutes
+    m_per_lon = 111.320 * math.cos(math.radians(ORIGIN_LAT))
+
+    # Collect ALL ASOS + RWIS stations with their lat/lon for per-node spatial IDW weighting!
+    all_obs_stations = []
+    for k, st in (asos or {}).items():
+        all_obs_stations.append((k, st["lat"], st["lon"], 1.0, st.get("series_24h") or []))
+    for k, rw in (rwis or {}).items():
+        all_obs_stations.append((k, rw["lat"], rw["lon"], 0.65, rw.get("series_24h") or []))
+
+    # Pre-index nearest observation per station per 10-min time bin for speed
+    stn_bin_uv = []
+    for k, slat, slon, net_w, ser in all_obs_stations:
+        bins = []
+        for tm in times_min:
             best, best_dt = None, 18.1
             for r in ser:
                 if r.get("wind_from_deg") is None or r.get("wind_ms") is None:
@@ -609,78 +649,110 @@ def build_wind_assimilation(asos: dict, rwis: dict, om_hourly_raw: dict):
                 if dt < best_dt:
                     best_dt = dt
                     best = r
-            if best is not None:
-                w = net_w / ((dkm + 12.0) ** 2)
-                u, v = wind_from_to_uv(best["wind_from_deg"], best["wind_ms"])
-                usum += w * u
-                vsum += w * v
+            bins.append(wind_from_to_uv(best["wind_from_deg"], best["wind_ms"]) if best is not None else None)
+        stn_bin_uv.append((k, slat, slon, net_w, bins))
+
+    spatial_nodes_out = []
+    iaaap_result = None
+
+    for nid, nlat, nlon, nelev in SPATIAL_HRRR_NODES:
+        om_node = (hrrr_nodes_raw or {}).get(nid) or fallback_om
+        u_hr, v_hr, pbl_hr = _extract_hourly_profile(om_node, nelev, hours_utc)
+
+        # Compute node-local IDW observed surface wind (within 110 km of node, p=2, L=15km)
+        obs_uv, obs_counts = [], []
+        node_cutoff = 0
+        for i, tm in enumerate(times_min):
+            wsum, usum, vsum, cnt = 0.0, 0.0, 0.0, 0
+            for _, slat, slon, net_w, bins in stn_bin_uv:
+                uv = bins[i]
+                if uv is None:
+                    continue
+                dkm, _ = dist_brg_km(nlat, nlon, slat, slon)
+                if dkm > 115.0:
+                    continue
+                w = net_w / ((dkm + 15.0) ** 2)
+                usum += w * uv[0]
+                vsum += w * uv[1]
                 wsum += w
                 cnt += 1
-        if wsum > 0 and cnt >= 2:
-            obs_uv.append((usum / wsum, vsum / wsum))
-            obs_counts.append(cnt)
-            obs_cutoff_min = tm
-        else:
-            obs_uv.append(None)
-            obs_counts.append(cnt)
+            if wsum > 0 and cnt >= 1:
+                obs_uv.append((usum / wsum, vsum / wsum))
+                obs_counts.append(cnt)
+                if cnt >= 2 or (nid == "Kirksville" and cnt >= 1):
+                    node_cutoff = tm
+            else:
+                obs_uv.append(None)
+                obs_counts.append(0)
 
-    # Second pass: assemble forecast vs. live-assimilated vertical profiles!
-    u_fcst_all, v_fcst_all = [], []
-    u_assim_all, v_assim_all = [], []
-    pbl_all = []
-    timeline_summary = []
+        u_fcst_all, v_fcst_all, u_assim_all, v_assim_all, pbl_all = [], [], [], [], []
+        timeline_summary = []
+        last_du, last_dv = 0.0, 0.0
+        for i, tm in enumerate(times_min):
+            t_hr = tm / 60.0
+            h_lo = min(int(t_hr), len(hours_utc) - 2)
+            hf = min(1.0, t_hr - h_lo)
+            uf = [(1.0 - hf) * u_hr[h_lo][zi] + hf * u_hr[h_lo + 1][zi] for zi in range(len(Z_GRID_M))]
+            vf = [(1.0 - hf) * v_hr[h_lo][zi] + hf * v_hr[h_lo + 1][zi] for zi in range(len(Z_GRID_M))]
+            pbl_c = round(min(1075.0, max(285.0, (1.0 - hf) * pbl_hr[h_lo] + hf * pbl_hr[h_lo + 1])), 1)
 
-    last_du, last_dv = 0.0, 0.0
-    for i, tm in enumerate(times_min):
-        t_hr = tm / 60.0
-        h_lo = min(int(t_hr), len(hours_utc) - 2)
-        hf = min(1.0, t_hr - h_lo)
-        uf = [(1.0 - hf) * u_hr[h_lo][zi] + hf * u_hr[h_lo + 1][zi] for zi in range(len(Z_GRID_M))]
-        vf = [(1.0 - hf) * v_hr[h_lo][zi] + hf * v_hr[h_lo + 1][zi] for zi in range(len(Z_GRID_M))]
-        pbl_c = round(min(1075.0, max(285.0, (1.0 - hf) * pbl_hr[h_lo] + hf * pbl_hr[h_lo + 1])), 1)
+            if obs_uv[i] is not None and tm <= node_cutoff:
+                mode = "observed_reanalysis"
+                uo, vo = obs_uv[i]
+                du, dv = uo - uf[0], vo - vf[0]
+                last_du, last_dv = du, dv
+            else:
+                mode = "forecast_projection"
+                decay = math.exp(-max(0.0, tm - node_cutoff) / 60.0)
+                du, dv = last_du * decay, last_dv * decay
 
-        if obs_uv[i] is not None and tm <= obs_cutoff_min:
-            mode = "observed_reanalysis"
-            uo, vo = obs_uv[i]
-            du = uo - uf[0]
-            dv = vo - vf[0]
-            last_du, last_dv = du, dv
-        else:
-            mode = "forecast_projection"
-            decay = math.exp(-max(0.0, tm - obs_cutoff_min) / 60.0)
-            du = last_du * decay
-            dv = last_dv * decay
-            uo, vo = uf[0] + du, vf[0] + dv
+            ua = [round(uf[zi] + du * math.exp(-Z_GRID_M[zi] / 320.0), 3) for zi in range(len(Z_GRID_M))]
+            va = [round(vf[zi] + dv * math.exp(-Z_GRID_M[zi] / 320.0), 3) for zi in range(len(Z_GRID_M))]
+            u_fcst_all.append([round(x, 3) for x in uf])
+            v_fcst_all.append([round(x, 3) for x in vf])
+            u_assim_all.append(ua)
+            v_assim_all.append(va)
+            pbl_all.append(pbl_c)
 
-        # Blend surface innovation upward through boundary layer (320 m vertical correlation scale)
-        ua = [round(uf[zi] + du * math.exp(-Z_GRID_M[zi] / 320.0), 3) for zi in range(len(Z_GRID_M))]
-        va = [round(vf[zi] + dv * math.exp(-Z_GRID_M[zi] / 320.0), 3) for zi in range(len(Z_GRID_M))]
+            if nid == "IAAAP":
+                fc_deg, fc_spd = uv_to_from_spd(uf[0], vf[0])
+                as_deg, as_spd = uv_to_from_spd(ua[0], va[0])
+                d_deg = ((as_deg - fc_deg + 540.0) % 360.0) - 180.0
+                ts_utc = (EVENT_DT + datetime.timedelta(minutes=tm)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                timeline_summary.append({
+                    "t_min": tm,
+                    "ts_utc": ts_utc,
+                    "mode": mode,
+                    "n_obs": obs_counts[i],
+                    "assim_from_deg": as_deg,
+                    "assim_ms": as_spd,
+                    "fcst_from_deg": fc_deg,
+                    "fcst_ms": fc_spd,
+                    "delta_deg": round(d_deg, 1),
+                    "delta_ms": round(as_spd - fc_spd, 2),
+                })
 
-        u_fcst_all.append([round(x, 3) for x in uf])
-        v_fcst_all.append([round(x, 3) for x in vf])
-        u_assim_all.append(ua)
-        v_assim_all.append(va)
-        pbl_all.append(pbl_c)
+        x_km = round((nlon - ORIGIN_LON) * m_per_lon, 2)
+        y_km = round((nlat - ORIGIN_LAT) * 111.132, 2)
+        node_obj = {
+            "id": nid,
+            "lat": nlat,
+            "lon": nlon,
+            "x_km": x_km,
+            "y_km": y_km,
+            "obs_cutoff_min": node_cutoff,
+            "pbl_m": pbl_all,
+            "u_assim": u_assim_all,
+            "v_assim": v_assim_all,
+        }
+        spatial_nodes_out.append(node_obj)
+        if nid == "IAAAP":
+            iaaap_result = (node_cutoff, u_fcst_all, v_fcst_all, u_assim_all, v_assim_all, pbl_all, timeline_summary)
 
-        fc_deg, fc_spd = uv_to_from_spd(uf[0], vf[0])
-        as_deg, as_spd = uv_to_from_spd(ua[0], va[0])
-        d_deg = ((as_deg - fc_deg + 540.0) % 360.0) - 180.0
-        ts_utc = (EVENT_DT + datetime.timedelta(minutes=tm)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        timeline_summary.append({
-            "t_min": tm,
-            "ts_utc": ts_utc,
-            "mode": mode,
-            "n_obs": obs_counts[i],
-            "assim_from_deg": as_deg,
-            "assim_ms": as_spd,
-            "fcst_from_deg": fc_deg,
-            "fcst_ms": fc_spd,
-            "delta_deg": round(d_deg, 1),
-            "delta_ms": round(as_spd - fc_spd, 2),
-        })
-
+    obs_cutoff_min, u_fcst_all, v_fcst_all, u_assim_all, v_assim_all, pbl_all, timeline_summary = iaaap_result
     obs_cutoff_utc = (EVENT_DT + datetime.timedelta(minutes=obs_cutoff_min)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
+        "model": "NOAA HRRR 3 km (ncep_hrrr_conus) + 4-node ASOS/RWIS IDW",
         "obs_cutoff_min": obs_cutoff_min,
         "obs_cutoff_utc": obs_cutoff_utc,
         "z_grid_m": Z_GRID_M,
@@ -691,6 +763,7 @@ def build_wind_assimilation(asos: dict, rwis: dict, om_hourly_raw: dict):
         "u_assim": u_assim_all,
         "v_assim": v_assim_all,
         "timeline_summary": timeline_summary,
+        "spatial_nodes": spatial_nodes_out,
     }
 
 
@@ -713,25 +786,55 @@ def run_fetch(push: bool = False):
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Prevent overlapping manual + systemd invocations from triggering upstream HTTP 429s
+    lock_path = DATA_DIR / ".fetch.lock"
+    lock_fp = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log_line("[skip] Another fetch_measurements.py run is already in progress.")
+        return
+
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     iso_utc = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     ts_slug = now_utc.strftime("%Y%m%d_%H%M%S")
     archive = load_archive()
 
+    # Load previous good bundle so transient upstream errors/429s NEVER clobber existing live data!
+    prev_bundle = {}
+    if LIVE_BUNDLE_FILE.exists():
+        try:
+            prev_bundle = json.loads(LIVE_BUNDLE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            prev_bundle = {}
+
     errors = []
     def safe(name, fn, default):
         try:
-            return fn()
+            res = fn()
+            if not res and default:
+                errors.append(f"{name}: empty response (retained previous cached data)")
+                return default
+            return res
         except Exception as e:
             errors.append(f"{name}: {e}")
             return default
 
-    xact = safe("epa_xact", lambda: fetch_epa_xact(archive), {})
-    monitors = safe("epa_monitors", fetch_epa_monitors, [])
-    asos = safe("iem_asos", lambda: fetch_asos_24h(archive, now_utc), {})
-    rwis = safe("iem_rwis", lambda: fetch_rwis_24h(archive, now_utc), {})
-    om = safe("openmeteo", lambda: fetch_openmeteo_24h(archive, now_utc), {})
-    wind_assim = safe("wind_assimilation", lambda: build_wind_assimilation(asos, rwis, om.get("iaaap_hourly_raw")), {})
+    xact = safe("epa_xact", lambda: fetch_epa_xact(archive), prev_bundle.get("epa_xact") or {})
+    monitors = safe("epa_monitors", fetch_epa_monitors, prev_bundle.get("epa_monitors") or [])
+    asos = safe("iem_asos", lambda: fetch_asos_24h(archive, now_utc), prev_bundle.get("asos") or {})
+    rwis = safe("iem_rwis", lambda: fetch_rwis_24h(archive, now_utc), prev_bundle.get("rwis") or {})
+    prev_om = {
+        "corridor_aq": prev_bundle.get("openmeteo_aq") or [],
+        "corridor_aq_24h": prev_bundle.get("openmeteo_aq_24h") or {},
+        "met_24h": prev_bundle.get("openmeteo_met_24h") or [],
+    }
+    om = safe("openmeteo", lambda: fetch_openmeteo_24h(archive, now_utc), prev_om)
+    wind_assim = safe(
+        "wind_assimilation",
+        lambda: build_wind_assimilation(asos, rwis, om.get("iaaap_hourly_raw"), om.get("hrrr_nodes_raw")),
+        prev_bundle.get("wind_assimilation") or {},
+    )
 
     save_archive(archive)
 

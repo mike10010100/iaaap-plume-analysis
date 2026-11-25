@@ -623,13 +623,14 @@ function updateAssimNote() {
   const info = state.obs3d.assimShiftInfo;
   if (state.obs3d.plumeMode === 'forecast') {
     el.style.color = '#fcd34d';
-    el.textContent = 'Showing initial pre-blast 15Z forecast winds only (unassimilated).';
+    el.textContent = 'Showing initial pre-blast 15Z uniform forecast winds (unassimilated).';
   } else if (info) {
     el.style.color = '#6ee7b7';
-    el.textContent = `Driven by live ASOS+RWIS ≤T+${info.cutoff_min}m (${String(info.cutoff_utc || '').slice(11, 16)}Z) · Shifts plume ${info.dist_km} km ${info.compass} @ +2h vs 15Z fcst.`;
+    const nodeTag = info.n_nodes > 1 ? `${info.n_nodes}-node Spatial HRRR 3km + ASOS/RWIS` : 'Live ASOS+RWIS';
+    el.textContent = `${nodeTag} (≤T+${info.cutoff_min}m · ${String(info.cutoff_utc || '').slice(11, 16)}Z) · Shifts plume ${info.dist_km} km ${info.compass} @ +${info.cmp_hr || 4}h vs 15Z fcst.`;
   } else {
     el.style.color = '#7dd3fc';
-    el.textContent = 'Live wind assimilation active (ASOS + RWIS).';
+    el.textContent = '4-node Spatial HRRR 3km + live ASOS/RWIS assimilation active.';
   }
 }
 

@@ -236,8 +236,18 @@ export class Plume3DObservatory {
     const kfSet = new Set(kfSec);
     const frames = [];
     const framesPbl = [];
-    const uProfT = new Float32Array(nZ);
-    const vProfT = new Float32Array(nZ);
+
+    // Use 4-node spatially varying HRRR 3 km + ASOS/RWIS field (IAAAP, Kahoka, Kirksville, Ottumwa) if present!
+    const nodes = (windAssim.spatial_nodes && windAssim.spatial_nodes.length > 0)
+      ? windAssim.spatial_nodes
+      : [{ id: 'IAAAP', x_km: 0, y_km: 0, u_assim: uAss, v_assim: vAss, pbl_m: pblArr }];
+    const nNodes = nodes.length;
+    const nodeX = nodes.map((n) => n.x_km * 1000.0);
+    const nodeY = nodes.map((n) => n.y_km * 1000.0);
+    const uNodeT = Array.from({ length: nNodes }, () => new Float32Array(nZ));
+    const vNodeT = Array.from({ length: nNodes }, () => new Float32Array(nZ));
+    const pblNodeT = new Float32Array(nNodes);
+    const wNode = new Float32Array(nNodes);
 
     const interpZ = (zz, arr) => {
       if (zz <= zGrid[0]) return arr[0];
@@ -266,17 +276,22 @@ export class Plume3DObservatory {
     snap(pblArr[0]);
     let tCur = 0;
     const tEnd = this.maxSec || 18000;
+    const L2_SPATIAL = 30000.0 * 30000.0; // 30 km smooth IDW kernel across the 192 km HRRR spatial network
     while (tCur < tEnd) {
       const dt = tCur < 120 ? 5.0 : 30.0;
       tCur += dt;
       const tMin = tCur / 60.0;
       const idxLo = Math.min(Math.floor(tMin / 10.0), nT - 2);
       const tf = Math.min(1.0, (tMin - tMinArr[idxLo]) / 10.0);
-      for (let k = 0; k < nZ; k++) {
-        uProfT[k] = uAss[idxLo][k] * (1.0 - tf) + uAss[idxLo + 1][k] * tf;
-        vProfT[k] = vAss[idxLo][k] * (1.0 - tf) + vAss[idxLo + 1][k] * tf;
+      for (let n = 0; n < nNodes; n++) {
+        const nd = nodes[n];
+        for (let k = 0; k < nZ; k++) {
+          uNodeT[n][k] = nd.u_assim[idxLo][k] * (1.0 - tf) + nd.u_assim[idxLo + 1][k] * tf;
+          vNodeT[n][k] = nd.v_assim[idxLo][k] * (1.0 - tf) + nd.v_assim[idxLo + 1][k] * tf;
+        }
+        pblNodeT[n] = Math.min(1075.0, Math.max(285.0, nd.pbl_m[idxLo] * (1.0 - tf) + nd.pbl_m[idxLo + 1] * tf));
       }
-      const pblC = Math.min(1075.0, Math.max(285.0, pblArr[idxLo] * (1.0 - tf) + pblArr[idxLo + 1] * tf));
+      const pblRef = pblNodeT[0];
       const conv = Math.min(1.0, (tCur / 3600.0) / 2.0);
       const sigH = Math.sqrt(2.0 * (16.0 + 36.0 * conv) * dt);
       const kzBase = 3.2 + 14.0 * conv;
@@ -284,16 +299,35 @@ export class Plume3DObservatory {
 
       for (let i = 0; i < N; i++) {
         if (!active[i]) continue;
-        const za = z[i];
-        const um = interpZ(za, uProfT);
-        const vm = interpZ(za, vProfT);
+        const xi = x[i], yi = y[i], za = z[i];
+        let um = 0.0, vm = 0.0, pblLoc = pblRef;
+        if (nNodes === 1) {
+          um = interpZ(za, uNodeT[0]);
+          vm = interpZ(za, vNodeT[0]);
+        } else {
+          let wSum = 0.0;
+          for (let n = 0; n < nNodes; n++) {
+            const dx = xi - nodeX[n], dy = yi - nodeY[n];
+            const w = 1.0 / (dx * dx + dy * dy + L2_SPATIAL);
+            wNode[n] = w;
+            wSum += w;
+          }
+          const invW = 1.0 / wSum;
+          pblLoc = 0.0;
+          for (let n = 0; n < nNodes; n++) {
+            const wn = wNode[n] * invW;
+            um += wn * interpZ(za, uNodeT[n]);
+            vm += wn * interpZ(za, vNodeT[n]);
+            pblLoc += wn * pblNodeT[n];
+          }
+        }
         const ur = spdArr[i] * (um * cdArr[i] + vm * sdArr[i]);
         const vr = spdArr[i] * (-um * sdArr[i] + vm * cdArr[i]);
         const kz = kzBase * Math.max(0.15, Math.min(1.0, 1.0 - 0.7 * (za / 1075.0) ** 2));
-        x[i] += ur * dt + randn() * sigH;
-        y[i] += vr * dt + randn() * sigH;
+        x[i] = xi + ur * dt + randn() * sigH;
+        y[i] = yi + vr * dt + randn() * sigH;
         let zn = za + (wBuoy[i] * buoyDecay - vs[i]) * dt + randn() * Math.sqrt(2.0 * kz * dt);
-        if (zn > pblC) zn = Math.max(-50.0, Math.min(1075.0, pblC - (zn - pblC) * 0.85));
+        if (zn > pblLoc) zn = Math.max(-50.0, Math.min(1075.0, pblLoc - (zn - pblLoc) * 0.85));
         if (zn <= 0.0) {
           if (rand() < pStick[i]) {
             active[i] = 0;
@@ -304,13 +338,13 @@ export class Plume3DObservatory {
         }
         z[i] = zn;
       }
-      if (kfSet.has(tCur)) snap(pblC);
+      if (kfSet.has(tCur)) snap(pblRef);
     }
 
-    // Measure airborne fine-plume centroid shift vs. initial 15Z forecast at T+120m (frame index for 7200s)
-    const idx2h = kfSec.indexOf(7200);
-    if (idx2h >= 0 && this.forecastPlume.frames[idx2h]) {
-      const fA = frames[idx2h], fF = this.forecastPlume.frames[idx2h];
+    // Measure airborne fine-plume centroid shift vs. initial 15Z forecast at T+4h (14,400s, capturing far-field NE Missouri curl!)
+    const idxCmp = kfSec.indexOf(14400) >= 0 ? kfSec.indexOf(14400) : kfSec.indexOf(7200);
+    if (idxCmp >= 0 && this.forecastPlume.frames[idxCmp]) {
+      const fA = frames[idxCmp], fF = this.forecastPlume.frames[idxCmp];
       let ax = 0, ay = 0, fx = 0, fy = 0, ca = 0, cf = 0;
       for (let i = N_C; i < N; i++) {
         const j = i * 3;
@@ -327,6 +361,8 @@ export class Plume3DObservatory {
           compass: dirs[Math.round(brg / 45) % 8],
           cutoff_min: windAssim.obs_cutoff_min,
           cutoff_utc: windAssim.obs_cutoff_utc,
+          n_nodes: nNodes,
+          cmp_hr: Math.round(kfSec[idxCmp] / 3600),
         };
       }
     }
