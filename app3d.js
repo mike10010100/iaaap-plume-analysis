@@ -15,10 +15,12 @@ export class Plume3DObservatory {
     this.vertExag = 12.0; // 12x vertical exaggeration makes 0-1,075m shear & terrain crystal clear!
     this.playing = true;
     this.speedMul = 20.0; // 20x speed -> 4 hours plays cleanly in ~25 seconds (slower early!)
-    this.simSec = 1500.0; // Start at T+25m so full 3D sheared multi-regime plume is immediately visible!
+    this.simSec = 660.0;  // Start at T+11m right as projected plume crosses AS01 (live 0.0021 ug/m3 trace!)
     this.maxSec = 14400.0;
     this.colorMode = 'regime'; // 'regime' | 'altitude'
     this.pickables = [];
+    this.xactVisuals = {};
+    this.latestXactObsSec = 6600.0;
     this.sensorGroup = new THREE.Group();
     this.windGroup = new THREE.Group();
     this.sightlineGroup = new THREE.Group();
@@ -100,7 +102,9 @@ export class Plume3DObservatory {
       this.raycaster.setFromCamera(this.pointer, this.camera);
       const hits = this.raycaster.intersectObjects(this.pickables, false);
       if (hits.length > 0 && this.cb.onSelect) {
-        this.cb.onSelect(hits[0].object.userData);
+        const ud = hits[0].object.userData;
+        const body = typeof ud.getBody === 'function' ? ud.getBody(this.simSec) : ud.body;
+        this.cb.onSelect({ ...ud, body });
       }
     });
   }
@@ -224,6 +228,79 @@ export class Plume3DObservatory {
     return sp;
   }
 
+  _makeDynamicSprite(initialText, color = '#6ee7b7', bg = 'rgba(6,22,16,0.92)') {
+    const c = document.createElement('canvas');
+    c.width = 430;
+    c.height = 50;
+    const ctx = c.getContext('2d');
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const draw = (text, fgColor, bgColor, dashed = false) => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.font = '700 20px Inter, sans-serif';
+      const pad = 14;
+      const tw = Math.min(c.width - pad * 2, ctx.measureText(text).width);
+      const boxW = Math.min(c.width - 4, tw + pad * 2);
+      const x0 = (c.width - boxW) / 2;
+      ctx.fillStyle = bgColor;
+      ctx.strokeStyle = fgColor;
+      ctx.lineWidth = 2.4;
+      ctx.setLineDash(dashed ? [6, 4] : []);
+      ctx.beginPath();
+      ctx.roundRect(x0, 4, boxW, c.height - 8, 9);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = fgColor;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, c.width / 2, c.height / 2 + 1, boxW - pad);
+      tex.needsUpdate = true;
+    };
+    draw(initialText, color, bg, false);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sp = new THREE.Sprite(mat);
+    const aspect = c.width / c.height;
+    sp.scale.set(1.32 * aspect, 1.32, 1);
+    sp.renderOrder = 14;
+    return { sprite: sp, draw };
+  }
+
+  _lookupXactAtSec(xact, sec) {
+    const ser = xact.series || [];
+    if (!ser.length) {
+      return { status: 'future', value: null, obsMin: null, obsTs: null, latestSec: 0 };
+    }
+    const latestRec = ser[ser.length - 1];
+    const latestSec = Math.max(0, (latestRec.min_post_blast ?? 0) * 60);
+    if (sec > latestSec + 180) {
+      return {
+        status: 'future',
+        value: null,
+        obsMin: latestRec.min_post_blast,
+        obsTs: latestRec.ts_utc,
+        latestSec,
+      };
+    }
+    // Find the most recent 5-minute observation at or before playback time (with +30s bin edge tolerance)
+    let chosen = ser[0];
+    for (let i = 0; i < ser.length; i++) {
+      if ((ser[i].min_post_blast * 60) <= sec + 30) {
+        chosen = ser[i];
+      } else {
+        break;
+      }
+    }
+    const val = Number(chosen.value || 0);
+    return {
+      status: val > 0 ? 'trace' : 'zero',
+      value: val,
+      obsMin: chosen.min_post_blast,
+      obsTs: chosen.ts_utc,
+      latestSec,
+    };
+  }
+
   _buildStaticOverlays() {
     const s = this.staticData;
 
@@ -255,7 +332,8 @@ export class Plume3DObservatory {
     originSphere.userData = {
       type: 'origin',
       title: 'Stereo-Triangulated Detonation Zone',
-      body: `<b>Coordinates:</b> ${s.origin.lat.toFixed(4)}°N, ${s.origin.lon.toFixed(4)}°W (±250 m)<br>` +
+      body: `<div style="margin-bottom:5px"><span class="tag-live">Video-Measured</span></div>` +
+            `<b>Coordinates:</b> ${s.origin.lat.toFixed(4)}°N, ${s.origin.lon.toFixed(4)}°W (±250 m)<br>` +
             `<b>Stereo Baseline:</b> 46.3° (KWQC + KCRG/AP)<br>` +
             `<b>Dual-Bunker Separation:</b> ~239 m (176–320 m)<br>` +
             `<b>Event Time:</b> 2026-11-25 15:00 UTC (9:00 AM CST)<br>` +
@@ -282,7 +360,7 @@ export class Plume3DObservatory {
         new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.45 })
       );
       mesh.position.set(x, 0.32, z);
-      mesh.userData = { type: 'camera', title: name, body: desc };
+      mesh.userData = { type: 'camera', title: name, body: `<div style="margin-bottom:5px"><span class="tag-live">Video-Calibrated</span></div>` + desc };
       this.sightlineGroup.add(mesh);
       this.pickables.push(mesh);
 
@@ -312,7 +390,8 @@ export class Plume3DObservatory {
     this.towerT3Mesh.userData = {
       type: 'tower',
       title: 'FAA Tower T3 (OAS 19-002048)',
-      body: `<b>Location:</b> 40.8411°N, -91.2830°W<br><b>Height:</b> 235 ft (71.6 m) AGL<br><b>Role:</b> Optical pixel-scale calibration landmark (307 px in KWQC feed)`
+      body: `<div style="margin-bottom:5px"><span class="tag-live">FAA DOF / Video Calibration</span></div>` +
+            `<b>Location:</b> 40.8411°N, -91.2830°W<br><b>Height:</b> 235 ft (71.6 m) AGL<br><b>Role:</b> Optical pixel-scale calibration landmark (307 px in KWQC feed)`
     };
     this.sightlineGroup.add(this.towerT3Mesh);
     this.pickables.push(this.towerT3Mesh);
@@ -403,12 +482,12 @@ export class Plume3DObservatory {
     );
     this.invMesh.add(invEdges);
 
-    this.invLbl = this._makeSpriteLabel('1,075 m Subsidence Inversion Cap (12Z)', '#ff7788', 'rgba(20,8,12,0.85)', 21);
+    this.invLbl = this._makeSpriteLabel('PROJECTED LID: 1,075 m Inversion Cap (12Z)', '#ff7788', 'rgba(20,8,12,0.85)', 20);
     this.invLbl.position.set(-22, 1.075 * this.vertExag + 0.55, -10);
     this.lidGroup.add(this.invLbl);
 
-    this.pblLbl = this._makeSpriteLabel('Mixing Layer (PBL)', '#6ee7b7', 'rgba(8,20,14,0.85)', 21);
-    this.pblLbl.position.set(-34, 0.285 * this.vertExag + 0.45, 25);
+    this.pblLbl = this._makeSpriteLabel('MODELED PBL Ceiling', '#fcd34d', 'rgba(24,18,6,0.85)', 20);
+    this.pblLbl.position.set(-22, 0.285 * this.vertExag + 0.45, 28);
     this.lidGroup.add(this.pblLbl);
   }
 
@@ -419,11 +498,22 @@ export class Plume3DObservatory {
     while (this.windGroup.children.length) this.windGroup.remove(this.windGroup.children[0]);
     // Keep only static pickables
     this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower'].includes(m.userData.type));
+    this.xactVisuals = {};
 
     const xactMap = liveData.epa_xact || {};
     const { wx_min_km, wx_max_km, wy_min_km, wy_max_km } = this.dem;
 
-    // 1. Plot all EPA Air Monitoring Stations (highlighting live Xact AS01..AS04 with tall glowing towers!)
+    // Determine latest live EPA observation timestamp across all Xact stations
+    let maxObs = 0;
+    for (const st of Object.values(xactMap)) {
+      const ser = st.series || [];
+      if (ser.length) {
+        maxObs = Math.max(maxObs, (ser[ser.length - 1].min_post_blast ?? 0) * 60);
+      }
+    }
+    this.latestXactObsSec = maxObs || 6600;
+
+    // 1. Plot all EPA Air Monitoring Stations (highlighting live Xact AS01..AS04 with dynamic time-synced towers!)
     for (const mon of (liveData.epa_monitors || [])) {
       const { x, z } = this.ll2xz(mon.lat, mon.lon);
       if (x < wx_min_km || x > wx_max_km || -z < wy_min_km || -z > wy_max_km) continue;
@@ -432,26 +522,48 @@ export class Plume3DObservatory {
       const baseY = this.terrainY(x, z);
 
       if (xact) {
-        const pillar = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.18, 0.28, 1.4, 12),
-          new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.7 })
-        );
+        const pillarMat = new THREE.MeshStandardMaterial({
+          color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.72, transparent: true, opacity: 0.96,
+        });
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 1.4, 14), pillarMat);
         pillar.position.set(x, baseY + 0.72, z);
+
+        // Ground pulse halo ring (lights up amber when live Xact records >0 trace at playback time T!)
+        const ringGeo = new THREE.RingGeometry(0.45, 0.78, 28);
+        ringGeo.rotateX(-Math.PI / 2);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.55, depthWrite: false,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.set(x, baseY + 0.14, z);
+        this.sensorGroup.add(ring);
+
         pillar.userData = {
           type: 'xact',
+          sid: key,
           title: `EPA Live Xact ${mon.station_id}`,
-          body: `<b>Latest Obs (${xact.latest_ts_utc || 'N/A'}):</b> <span style="color:#00ff88;font-weight:700">${(xact.latest_value ?? 0).toFixed(4)} ${xact.units}</span><br>` +
-                `<b>Post-Blast Max:</b> ${xact.post_blast_max.toFixed(4)} µg/m³ | <b>Pre-Blast Max:</b> ${xact.pre_blast_max.toFixed(4)} µg/m³<br>` +
-                `<b>Distance:</b> ${xact.dist_km} km @ ${xact.bearing_deg}° | <b>Obs Count:</b> ${xact.obs_count}<br>` +
-                `<b>Modeled Hit Prob:</b> ${xact.hit_prob_pct ?? 'N/A'}% (peak ~T+${xact.modeled_peak_min ?? '?'}m)<br>` +
-                (xact.f_max_pct ? `<b>Inverse Release Bound:</b> f_Pb ≲ ${xact.f_max_pct.toFixed(4)}% (≤${xact.q_max_kg} kg)` : '')
+          getBody: (curSec) => {
+            const snap = this._lookupXactAtSec(xact, curSec);
+            const atTRow = snap.status === 'future'
+              ? `<span style="color:#fcd34d;font-weight:700">No obs yet (playback past ${String(xact.latest_ts_utc || '').slice(11, 16)}Z)</span>`
+              : `<span style="color:${snap.status === 'trace' ? '#fbbf24' : '#00ff88'};font-weight:700">${snap.value.toFixed(4)} ${xact.units}</span> (bin T+${Math.round(snap.obsMin)}m · ${String(snap.obsTs || '').slice(11, 16)}Z)`;
+            return `<div style="margin-bottom:5px"><span class="tag-live">● Live Observed Sensor</span></div>` +
+              `<b>Reading @ 3D Clock:</b> ${atTRow}<br>` +
+              `<b>Latest Published (${String(xact.latest_ts_utc || '').slice(11, 16)}Z):</b> ${(xact.latest_value ?? 0).toFixed(4)} ${xact.units}<br>` +
+              `<b>Post-Blast Max:</b> ${xact.post_blast_max.toFixed(4)} µg/m³ | <b>Pre-Blast Max:</b> ${xact.pre_blast_max.toFixed(4)} µg/m³<br>` +
+              `<b>Distance:</b> ${xact.dist_km} km @ ${xact.bearing_deg}° | <b>Obs Count:</b> ${xact.obs_count}<br>` +
+              `<div style="margin-top:5px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.12)"><span class="tag-proj">◆ Modeled Projection</span> Hit prob: ${xact.hit_prob_pct ?? 'N/A'}% (peak ~T+${xact.modeled_peak_min ?? '?'}m)` +
+              (xact.f_max_pct ? `<br><span class="tag-hybrid">Inverse Bound</span> f_Pb ≲ ${xact.f_max_pct.toFixed(4)}% (≤${xact.q_max_kg} kg)` : '') + `</div>`;
+          },
         };
         this.sensorGroup.add(pillar);
         this.pickables.push(pillar);
 
-        const lbl = this._makeSpriteLabel(`${key}: ${(xact.post_blast_max).toFixed(4)} µg/m³`, '#6ee7b7', 'rgba(6,22,16,0.9)', 21);
-        lbl.position.set(x, baseY + 2.15, z);
-        this.sensorGroup.add(lbl);
+        const dynLabel = this._makeDynamicSprite(`● ${key}: ${(xact.latest_value ?? 0).toFixed(4)} µg/m³`);
+        dynLabel.sprite.position.set(x, baseY + 2.30, z);
+        this.sensorGroup.add(dynLabel.sprite);
+
+        this.xactVisuals[key] = { sid: key, pillar, ring, dynLabel, baseY, xact, x, z, lastKey: null, status: 'zero' };
       } else {
         const cone = new THREE.Mesh(
           new THREE.ConeGeometry(0.24, 0.55, 6),
@@ -461,7 +573,8 @@ export class Plume3DObservatory {
         cone.userData = {
           type: 'epa',
           title: `EPA Station ${mon.station_id}`,
-          body: `<b>Instruments:</b> ${mon.instrument_type}<br><b>Distance:</b> ${mon.dist_km} km @ ${mon.bearing_deg}°<br><b>Coords:</b> ${mon.lat.toFixed(4)}°N, ${mon.lon.toFixed(4)}°W`
+          body: `<div style="margin-bottom:5px"><span class="tag-live">● Live Deployed Site</span></div>` +
+                `<b>Instruments:</b> ${mon.instrument_type}<br><b>Distance:</b> ${mon.dist_km} km @ ${mon.bearing_deg}°<br><b>Coords:</b> ${mon.lat.toFixed(4)}°N, ${mon.lon.toFixed(4)}°W`
         };
         this.sensorGroup.add(cone);
         this.pickables.push(cone);
@@ -482,7 +595,7 @@ export class Plume3DObservatory {
 
       const orb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), new THREE.MeshBasicMaterial({ color }));
       orb.position.set(x, baseY, z);
-      orb.userData = { type: 'wind', title, body };
+      orb.userData = { type: 'wind', title, body: `<div style="margin-bottom:5px"><span class="tag-live">● Live Weather Obs</span></div>` + body };
       this.windGroup.add(orb);
       this.pickables.push(orb);
     };
@@ -501,6 +614,78 @@ export class Plume3DObservatory {
         `<b>Observed (${rw.valid_utc}):</b> Wind FROM ${rw.wind_from_deg}° → TO ${rw.wind_to_deg}°<br>` +
         `<b>Speed:</b> ${rw.wind_ms} m/s | <b>Temp:</b> ${rw.temp_f}°F`);
     }
+
+    this._updateXactVisualsAtTime(this.simSec);
+  }
+
+  _updateXactVisualsAtTime(sec) {
+    const snapshots = {};
+    for (const [sid, vis] of Object.entries(this.xactVisuals)) {
+      const snap = this._lookupXactAtSec(vis.xact, sec);
+      snapshots[sid] = snap;
+      vis.status = snap.status;
+
+      let key, text, fg, bg, dashed = false;
+      if (snap.status === 'future') {
+        const hhmm = String(vis.xact.latest_ts_utc || '').slice(11, 16) || 'latest';
+        key = `future:${hhmm}`;
+        text = `${sid} · >${hhmm}Z (no obs yet)`;
+        fg = '#94a3b8';
+        bg = 'rgba(15,23,42,0.88)';
+        dashed = true;
+        vis.pillar.scale.set(1, 0.72, 1);
+        vis.pillar.position.y = vis.baseY + 0.50;
+        vis.pillar.material.color.setHex(0x64748b);
+        vis.pillar.material.emissive.setHex(0x334155);
+        vis.pillar.material.emissiveIntensity = 0.35;
+        vis.pillar.material.opacity = 0.58;
+        vis.ring.visible = false;
+      } else if (snap.status === 'trace') {
+        const valStr = snap.value.toFixed(4);
+        key = `trace:${valStr}`;
+        text = `● ${sid} LIVE: ${valStr} µg/m³`;
+        fg = '#fcd34d';
+        bg = 'rgba(42,26,4,0.95)';
+        const hScale = 1.65 + Math.min(1.4, Math.log10(1 + snap.value * 2000) * 0.45);
+        vis.pillar.scale.set(1.22, hScale, 1.22);
+        vis.pillar.position.y = vis.baseY + 0.70 * hScale;
+        vis.pillar.material.color.setHex(0xfbbf24);
+        vis.pillar.material.emissive.setHex(0xf59e0b);
+        vis.pillar.material.emissiveIntensity = 1.05;
+        vis.pillar.material.opacity = 1.0;
+        vis.ring.visible = true;
+        vis.ring.material.color.setHex(0xfbbf24);
+        vis.ring.material.opacity = 0.85;
+      } else {
+        key = `zero`;
+        text = `● ${sid} LIVE: 0.0000 µg/m³`;
+        fg = '#6ee7b7';
+        bg = 'rgba(6,22,16,0.92)';
+        vis.pillar.scale.set(1, 1, 1);
+        vis.pillar.position.y = vis.baseY + 0.72;
+        vis.pillar.material.color.setHex(0x00ff88);
+        vis.pillar.material.emissive.setHex(0x00ff88);
+        vis.pillar.material.emissiveIntensity = 0.65;
+        vis.pillar.material.opacity = 0.95;
+        vis.ring.visible = true;
+        vis.ring.scale.set(1, 1, 1);
+        vis.ring.material.color.setHex(0x00ff88);
+        vis.ring.material.opacity = 0.38;
+      }
+
+      if (vis.lastKey !== key) {
+        vis.lastKey = key;
+        vis.dynLabel.draw(text, fg, bg, dashed);
+      }
+    }
+    return snapshots;
+  }
+
+  inspectXactStation(sid) {
+    const vis = this.xactVisuals[sid];
+    if (!vis || !this.cb.onSelect) return;
+    const ud = vis.pillar.userData;
+    this.cb.onSelect({ ...ud, body: ud.getBody(this.simSec) });
   }
 
   applyVerticalExaggeration(exag) {
@@ -589,8 +774,11 @@ export class Plume3DObservatory {
       this.pblLbl.position.y = (pblM / 1000.0) * exag + 0.45;
     }
 
+    // Time-sync 3D live EPA Xact towers & labels with the playback clock!
+    const xactSnap = this._updateXactVisualsAtTime(clamped);
+
     if (this.cb.onTick) {
-      this.cb.onTick(clamped, pblM, Math.round((airborneCount / N) * 100));
+      this.cb.onTick(clamped, pblM, Math.round((airborneCount / N) * 100), xactSnap, this.latestXactObsSec);
     }
   }
 
@@ -615,6 +803,7 @@ export class Plume3DObservatory {
   }
 
   setLayerVisible(name, vis) {
+    if (name === 'particles' && this.points) this.points.visible = vis;
     if (name === 'sightlines') this.sightlineGroup.visible = vis;
     if (name === 'sensors') this.sensorGroup.visible = vis;
     if (name === 'winds') this.windGroup.visible = vis;
@@ -659,6 +848,15 @@ export class Plume3DObservatory {
       this.simSec += dt * pace;
       if (this.simSec > this.maxSec) this.simSec = 0;
       this.updateParticlesAtTime(this.simSec);
+    }
+
+    // Gentle pulse animation on any live EPA Xact station experiencing >0 trace at current playback time
+    const nowSec = performance.now() * 0.001;
+    for (const vis of Object.values(this.xactVisuals)) {
+      if (vis.status === 'trace' && vis.ring.visible) {
+        const s = 1.0 + 0.45 * (0.5 + 0.5 * Math.sin(nowSec * 5.2));
+        vis.ring.scale.set(s, s, 1);
+      }
     }
 
     if (this.cameraPosGoal && this.cameraTargetGoal) {

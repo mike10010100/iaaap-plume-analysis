@@ -43,27 +43,27 @@
       </p>
       <div class="kpi-grid">
         <div class="kpi-card">
-          <div class="kpi-label">Stereo Blast Origin (46.3° Baseline)</div>
+          <div class="kpi-hdr"><div class="kpi-label">Stereo Blast Origin (46.3°)</div><span class="tag-live">Video-Measured</span></div>
           <div class="kpi-val cyan">40.810°N, -91.267°W</div>
           <div class="kpi-sub">±250 m (5.8× tighter than single cam) · Dual bunkers ~240 m apart</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Live EPA Xact Lead Peak</div>
+          <div class="kpi-hdr"><div class="kpi-label">EPA Xact Lead Peak</div><span class="tag-live">● Live Sensor</span></div>
           <div class="kpi-val green" id="kpi-xact-val">Loading...</div>
           <div class="kpi-sub" id="kpi-xact-sub">Checking AS01–AS04 continuous telemetry</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Inverse Airborne Pb Bound</div>
+          <div class="kpi-hdr"><div class="kpi-label">Airborne Pb Bound</div><span class="tag-hybrid">Live + Model</span></div>
           <div class="kpi-val green" id="kpi-bound-val">≲ 0.013% Pb</div>
           <div class="kpi-sub" id="kpi-bound-sub">&gt;99.95% contained / non-lofted (mixed-PBL constraint)</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Observed KBRL Surface Wind</div>
+          <div class="kpi-hdr"><div class="kpi-label">KBRL Surface Wind</div><span class="tag-live">● Live Sensor</span></div>
           <div class="kpi-val amber" id="kpi-wind-val">Loading...</div>
           <div class="kpi-sub" id="kpi-wind-sub">SW–WSW transport away from Burlington &amp; Middletown</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Auto-Updating Sensor Network</div>
+          <div class="kpi-hdr"><div class="kpi-label">Sensor Network</div><span class="tag-live">● Auto-Synced</span></div>
           <div class="kpi-val" id="kpi-net-val">43 EPA · 10 ASOS · 5 RWIS</div>
           <div class="kpi-sub">Local systemd daemon (10m) + live CORS refresh</div>
         </div>
@@ -72,9 +72,13 @@
 
     <!-- Flagship 3D Interactive WebGL Observatory -->
     <section id="model-3d" class="block">
-      <h2>🌐 Interactive 3D Atmospheric Plume &amp; Live Sensor Model</h2>
+      <h2>
+        🌐 Interactive 3D Atmospheric Plume &amp; Live Sensor Model
+        <span class="tag-live">● Live Sensors</span>
+        <span class="tag-proj">◆ Modeled Projection</span>
+      </h2>
       <p class="section-lead">
-        Explore 2,400 real 3D Lagrangian trajectories over actual SE Iowa / NE Missouri topography (156–241 m MSL), stereo camera sightlines, FAA Tower T3, live EPA Xact monitoring beacons, ASOS/RWIS wind vectors, the growing morning mixing layer (PBL: 285 → 785 m), and the 1,075 m subsidence inversion cap. <strong>Drag to orbit, scroll to zoom, right-drag to pan, or click any glowing sensor/camera to inspect live readings.</strong>
+        Compare <strong style="color:#6ee7b7">live observed telemetry</strong> (time-synced EPA Region 7 Xact continuous lead monitors, 43 EPA stations, ASOS/RWIS wind vectors, and video-calibrated camera sightlines) directly against our <strong style="color:#fcd34d">modeled 3D Lagrangian projection</strong> (2,400 simulated particle trajectories, ground heatmaps, and mixing/inversion lids) over real SE Iowa / NE Missouri topography (156–241 m MSL). <strong>Scrub the timeline to watch live EPA readings evolve in real time as the projected plume passes each station.</strong>
       </p>
 
       <div id="stage-3d-wrap" class="stage-3d-wrap">
@@ -93,26 +97,47 @@
           <button id="btn-fs" class="hud-btn">⛶ Fullscreen</button>
         </div>
 
-        <!-- Compact Legend -->
+        <!-- Split Live vs. Projection Legend -->
         <div class="hud-legend">
-          <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Coarse Dust (20–70 µm, near-field fallout)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#0de0ff"></span> Respirable PM10 (3–15 µm)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#f552e0"></span> Fine Aerosol PM2.5 (&lt;2.5 µm)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> Live EPA Xact / Monitors &amp; PBL Lid</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#ff4455"></span> 1,075 m Subsidence Inversion Cap</div>
+          <div class="leg-group-hdr live">● Live Observed / Calibrated</div>
+          <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> EPA Xact Towers (time-synced @ T)</div>
+          <div class="leg-item"><span class="leg-dot" style="background:#fbbf24"></span> Xact Trace &gt;0 µg/m³ Pulse @ T</div>
+          <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Live ASOS &amp; RWIS Wind Arrows</div>
+          <div class="leg-item"><span class="leg-dot square" style="background:#ff44ff"></span> Video Cam Sightlines &amp; Tower T3</div>
+          <div class="leg-group-hdr proj">◆ Modeled Projection (Simulated)</div>
+          <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Projected Coarse Dust (20–70 µm)</div>
+          <div class="leg-item"><span class="leg-dot" style="background:#0de0ff"></span> Projected PM10 (3–15 µm)</div>
+          <div class="leg-item"><span class="leg-dot" style="background:#f552e0"></span> Projected PM2.5 (&lt;2.5 µm)</div>
+          <div class="leg-item"><span class="leg-dot dashed"></span> Ground Heatmap &amp; PBL / 1,075 m Cap</div>
+        </div>
+
+        <!-- Time-Synced Live EPA Xact Telemetry Overlay (Bottom-Left) -->
+        <div id="hud-epa-live" class="hud-epa-live">
+          <div class="epa-live-hdr">
+            <div class="epa-live-title">
+              <span class="pulse-dot" style="width:7px;height:7px"></span>
+              <span>Live EPA Xact</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.35rem;">
+              <span id="epa-hud-badge" class="tag-live">Live Obs</span>
+              <button id="btn-epa-collapse" class="epa-toggle-btn" title="Collapse/expand live EPA timeline overlay">Hide</button>
+            </div>
+          </div>
+          <div class="epa-live-body">
+            <div class="epa-live-sub">
+              <span><strong style="color:#34d399">Green bars:</strong> Live Xact · <strong style="color:#fbbf24">Dashed:</strong> Projected arrival</span>
+              <span id="epa-hud-clock">T + 25m</span>
+            </div>
+            <div id="epa-live-rows"></div>
+          </div>
         </div>
 
         <!-- Right-Side Layer & Exaggeration Controls -->
         <aside class="hud-controls">
           <h4>3D Layers &amp; Optics</h4>
           <div class="ctrl-group">
-            <div class="ctrl-row">
-              <span>Base Terrain</span>
-              <select id="sel-base" class="ctrl-select">
-                <option value="dark" selected>ESRI Dark Gray</option>
-                <option value="sat">ESRI Satellite</option>
-              </select>
-            </div>
+            <div class="ctrl-subhdr proj">◆ Modeled Projection Layers</div>
+            <div class="ctrl-row"><label><input id="chk-particles" type="checkbox" checked /> Projected 3D Plume (2,400 pts)</label></div>
             <div class="ctrl-row">
               <span>Ground Heatmap</span>
               <select id="sel-drape" class="ctrl-select">
@@ -129,24 +154,32 @@
                 <option value="altitude">Altitude AGL Ramp</option>
               </select>
             </div>
+            <div class="ctrl-row"><label><input id="chk-lids" type="checkbox" checked /> PBL &amp; 1,075 m Inversion Cap</label></div>
           </div>
           <div class="ctrl-group">
+            <div class="ctrl-subhdr live">● Live Observed / Calibrated</div>
+            <div class="ctrl-row"><label><input id="chk-sensors" type="checkbox" checked /> Live EPA Xact + 43 Monitors</label></div>
+            <div class="ctrl-row"><label><input id="chk-winds" type="checkbox" checked /> Live ASOS &amp; RWIS Wind Arrows</label></div>
+            <div class="ctrl-row"><label><input id="chk-sightlines" type="checkbox" checked /> Video Sightlines &amp; Stereo Zone</label></div>
+            <div class="ctrl-row"><label><input id="chk-labels" type="checkbox" checked /> 3D Community Labels</label></div>
+          </div>
+          <div class="ctrl-group">
+            <div class="ctrl-row">
+              <span>Base Terrain</span>
+              <select id="sel-base" class="ctrl-select">
+                <option value="dark" selected>ESRI Dark Gray</option>
+                <option value="sat">ESRI Satellite</option>
+              </select>
+            </div>
             <div class="ctrl-row">
               <span>Vertical Exag.</span>
               <strong id="lbl-exag" style="color:var(--cyan)">12×</strong>
             </div>
             <input id="slider-exag" type="range" min="1" max="25" step="1" value="12" style="width:100%" />
           </div>
-          <div class="ctrl-group">
-            <div class="ctrl-row"><label><input id="chk-sightlines" type="checkbox" checked /> Camera Sightlines &amp; Stereo Zone</label></div>
-            <div class="ctrl-row"><label><input id="chk-sensors" type="checkbox" checked /> 43 EPA Monitors &amp; Live Xact</label></div>
-            <div class="ctrl-row"><label><input id="chk-winds" type="checkbox" checked /> Live ASOS &amp; RWIS Wind Arrows</label></div>
-            <div class="ctrl-row"><label><input id="chk-lids" type="checkbox" checked /> PBL &amp; 1,075 m Inversion Cap</label></div>
-            <div class="ctrl-row"><label><input id="chk-labels" type="checkbox" checked /> 3D Community Labels</label></div>
-          </div>
         </aside>
 
-        <!-- Click Inspector Card -->
+        <!-- Click Inspector Card (Bottom-Right, avoids overlapping EPA HUD) -->
         <div id="hud-inspector" class="hud-inspector">
           <div class="insp-hdr">
             <span id="insp-title">Sensor Inspector</span>
@@ -164,16 +197,50 @@
             <option value="50">50× Spd</option>
             <option value="100">100× Spd</option>
           </select>
-          <input id="slider-time" class="timeline-slider" type="range" min="0" max="14400" step="5" value="1500" />
+          <div class="timeline-track-wrap">
+            <input id="slider-time" class="timeline-slider" type="range" min="0" max="14400" step="5" value="1500" style="width:100%;margin:0" />
+            <div class="timeline-zones" title="Green = verified live EPA observation window; Amber = forward projection beyond latest observation">
+              <div id="timeline-live-fill" class="timeline-live-fill"></div>
+            </div>
+            <div class="timeline-zone-labels">
+              <span id="tz-live-lbl" class="tz-live">● Live EPA Obs Window (0 → 110m)</span>
+              <span id="tz-proj-lbl" class="tz-proj">◆ Projection Only (&gt;16:50 UTC → +4h)</span>
+            </div>
+          </div>
+          <span id="readout-mode" class="mode-pill live">● Live Obs + Proj</span>
           <div id="readout-time" class="time-readout">T + 25m · 9:25:00 AM CST</div>
-          <div id="readout-pbl" class="pbl-readout">PBL: 285 m · Airborne: 100%</div>
+          <div id="readout-pbl" class="pbl-readout">PBL: 414 m · Airborne: 63%</div>
+        </div>
+      </div>
+
+      <!-- Explicit Live Data vs. Modeled Projection Transparency Card -->
+      <div class="provenance-grid">
+        <div class="prov-card live">
+          <h4><span class="tag-live">● Live Observed / Measured</span> Ground Truth Inputs</h4>
+          <ul>
+            <li><strong>EPA Region 7 Xact (<code>AS01–AS04</code>):</strong> Real 5-minute continuous lead measurements (<code>µg/m³</code>) synced frame-by-frame to the 3D playback clock up to the latest live observation.</li>
+            <li><strong>43 EPA Monitor Sites + 15 Weather Sensors:</strong> Real GPS locations, live NWS/IEM ASOS airport winds, and Iowa DOT RWIS highway winds updated every 10 minutes.</li>
+            <li><strong>Dual-Video Kinematics &amp; Stereo Origin:</strong> Directly measured from KWQC + KCRG/AP 1080p frames, FAA Tower T3 (235 ft), and acoustic shockwave delay (<code>±250 m</code>).</li>
+          </ul>
+        </div>
+        <div class="prov-card proj">
+          <h4><span class="tag-proj">◆ Modeled Projection</span> Simulated Atmospheric Dispersion</h4>
+          <ul>
+            <li><strong>3D Particle Cloud (2,400 trajectories):</strong> Simulated Lagrangian advection/diffusion across coarse dust, PM10, and PM2.5 size regimes—<em>not</em> a radar image of actual airborne lead mass.</li>
+            <li><strong>Ground Heatmaps (<code>χ/Q</code>, Deposition, Sensitivity):</strong> Relative dispersion dilution factor and hypothetical <code>% Pb</code> release scenarios; actual airborne lead requires scaling by source term <code>Q</code>.</li>
+            <li><strong>Beyond Latest EPA Timestamp:</strong> When playback advances past the green observed window on the timeline, all Xact towers switch to <code>No obs yet</code> to mark pure forward projection.</li>
+          </ul>
         </div>
       </div>
     </section>
 
     <!-- Live Telemetry & Interactive Release-Fraction Explorer -->
     <section id="live-explorer" class="block">
-      <h2>📡 Live Telemetry Cross-Check &amp; Release-Fraction Sensitivity Explorer</h2>
+      <h2>
+        📡 Live Telemetry Cross-Check &amp; Release-Fraction Sensitivity Explorer
+        <span class="tag-live">● Live EPA Xact</span>
+        <span class="tag-proj">◆ Modeled Curves</span>
+      </h2>
       <p class="section-lead">
         Compare real-time EPA Region 7 Xact continuous lead measurements (updated automatically by our daemon and via direct browser refresh) against our 80-member modeled plume arrival curves. Drag the hypothetical airborne lead release slider to see which source-term fractions are consistent with—or immediately ruled out by—live ground telemetry.
       </p>
@@ -245,9 +312,9 @@
 
     <!-- Embedded 2D Leaflet Map -->
     <section id="map-2d" class="block">
-      <h2>🗺️ Interactive 2D Street &amp; Satellite Dispersion Heatmap</h2>
+      <h2>🗺️ Interactive 2D Street &amp; Satellite Dispersion Heatmap <span class="tag-proj">◆ Modeled Contours</span> <span class="tag-live">● 43 EPA &amp; ASOS Sites</span></h2>
       <p class="section-lead">
-        Toggle high-resolution breathing-zone exposure (<code>χ/Q</code>), surface dust deposition, hypothetical <code>0.1%</code> Pb 15-minute peak screening contours, dual-camera stereo sightlines, all 43 EPA monitoring sites, and regional ASOS wind arrows.
+        Toggle high-resolution <strong style="color:#fcd34d">modeled</strong> breathing-zone exposure (<code>χ/Q</code>), surface dust deposition, and hypothetical <code>0.1%</code> Pb 15-minute peak screening contours alongside <strong style="color:#6ee7b7">observed</strong> dual-camera stereo sightlines, all 43 EPA monitoring sites, and regional ASOS wind arrows.
         <a href="assets/map_2d.html" target="_blank" rel="noopener">Open 2D map in fullscreen tab ↗</a>
       </p>
       <iframe class="map-2d-frame" src="assets/map_2d.html" title="Interactive 2D Dispersion Heatmap" loading="lazy"></iframe>
@@ -256,47 +323,47 @@
     <!-- Publication Figures Gallery -->
     <section id="figures" class="block">
       <h2>📊 Visual Forensics, Stereo Triangulation &amp; Dispersion Figures (Click to Zoom)</h2>
-      <p class="section-lead">All six analytical plates generated directly from the stabilized 1080p video streams, public FAA/NWS/IEM/Open-Meteo datasets, and 60,000–80,000-particle Lagrangian simulations.</p>
+      <p class="section-lead">All six analytical plates clearly separate <span class="tag-live">● Observed / Video-Measured</span> evidence from <span class="tag-proj">◆ Modeled Projections</span> across 60,000–80,000 Lagrangian particles.</p>
       <div class="fig-grid">
         <figure class="fig-card">
           <img src="assets/figures/fig1_visual_plume_kinematics.png" alt="Figure 1: Visual Plume Inspection and Stabilized Kinematics" loading="lazy" />
           <figcaption class="fig-cap">
-            <strong>Figure 1 — Stabilized Visual Plume Kinematics &amp; Acoustic Shockwave Ranging (KWQC / C-SPAN)</strong>
+            <strong>Figure 1 — Stabilized Visual Plume Kinematics &amp; Acoustic Ranging (KWQC / C-SPAN) <span class="tag-live">Video-Measured</span></strong>
             1 fps tower-stabilized tracking resolves dual plumes (~240 m apart) drifting left-to-right at 4.9 m/s (East, R²=0.956) and 7.2 m/s (West, R²=0.999) with direct vertical wind shear (6.8 → 8.1 m/s) and acoustic range Δt = 18.8 s → 6.2 ± 0.5 km.
           </figcaption>
         </figure>
         <figure class="fig-card">
           <img src="assets/figures/fig5_dual_camera_triangulation.png" alt="Figure 5: Dual-Camera Stereo Triangulation" loading="lazy" />
           <figcaption class="fig-cap">
-            <strong>Figure 5 — Dual-Camera Stereo Triangulation &amp; 3D Plume Verification (KWQC + KCRG/AP)</strong>
+            <strong>Figure 5 — Dual-Camera Stereo Triangulation &amp; 3D Plume Verification (KWQC + KCRG/AP) <span class="tag-live">Video-Measured</span></strong>
             Pinpointing KCRG/AP via the blue "9856" rural 911 sign at 9856 202nd Ave yields a 46.3° stereo cross-angle that shrinks blast-origin uncertainty 5.8× (±250 m), while tracking the rising buoyant cap (208 → 252 m @ 8.7 m/s, R²=0.998) straight up the 15Z shear profile.
           </figcaption>
         </figure>
         <figure class="fig-card">
           <img src="assets/figures/fig2_atmospheric_profile.png" alt="Figure 2: Observed and Modeled Atmospheric Conditions" loading="lazy" />
           <figcaption class="fig-cap">
-            <strong>Figure 2 — Observed &amp; Modeled Boundary-Layer Structure (Nov 25, 2026)</strong>
+            <strong>Figure 2 — Observed &amp; Modeled Boundary-Layer Structure (Nov 25, 2026) <span class="tag-hybrid">Observed + NWP</span></strong>
             KDVN 12Z sounding + Open-Meteo 15Z–20Z + 8 regional ASOS stations capture clear freezing conditions (0°C, 1032 hPa), NE→ENE directional wind shear (222° @ 4.1 m/s → 239° @ 8.7 m/s), growing PBL (285 → 785 m), and the 1,075 m subsidence inversion cap.
           </figcaption>
         </figure>
         <figure class="fig-card">
           <img src="assets/figures/fig3_dispersion_heatmap_regional.png" alt="Figure 3: Regional Dispersion and Deposition Heatmaps" loading="lazy" />
           <figcaption class="fig-cap">
-            <strong>Figure 3 — Regional Dispersion &amp; Deposition Heatmaps (0–4 hr, SE Iowa / NE Missouri)</strong>
+            <strong>Figure 3 — Regional Dispersion &amp; Deposition Heatmaps (0–4 hr, SE Iowa / NE Missouri) <span class="tag-proj">Modeled Projection</span></strong>
             60,000-particle 3D Lagrangian ensemble reproduces the exact SW–WSW corridor where EPA deployed 43 air monitors, separating near-field coarse fallout (median 2.0 km) from sheared fine particulate transport (hourly isochrones +15m to +3h).
           </figcaption>
         </figure>
         <figure class="fig-card">
           <img src="assets/figures/fig4_local_heatmap_geoloc.png" alt="Figure 4: Local Near-Field Heatmap and Geolocation" loading="lazy" />
           <figcaption class="fig-cap">
-            <strong>Figure 4 — Local Near-Field Dispersion &amp; Camera Sightline Geometry (ESRI Satellite)</strong>
+            <strong>Figure 4 — Local Near-Field Dispersion &amp; Camera Sightline Geometry (ESRI Satellite) <span class="tag-proj">Modeled Projection</span></strong>
             High-resolution view across Danville, Middletown, IAAAP, Augusta, Denmark, and West Point showing near-field coarse+fine deposition contours, 5-mile radius, and nearby EPA stations AS-01, AS-06, AS-11, AS-02.
           </figcaption>
         </figure>
         <figure class="fig-card">
           <img src="assets/figures/fig6_epa_inverse_and_sensitivity.png" alt="Figure 6: Live EPA Telemetry Validation and Sensitivity Sweep" loading="lazy" />
           <figcaption class="fig-cap">
-            <strong>Figure 6 — Live EPA Xact Telemetry, Inverse Release Bound &amp; Forward Sensitivity Sweep</strong>
+            <strong>Figure 6 — Live EPA Xact Telemetry, Inverse Release Bound &amp; Forward Sensitivity Sweep <span class="tag-hybrid">Live vs. Projection</span></strong>
             Real-time trace/zero Xact readings at AS01–AS03 rule out ≥0.1% Pb release scenarios and constrain actual far-field airborne respirable lead escape to ≲0.013%–0.047% (&gt;99.95% contained).
           </figcaption>
         </figure>
@@ -311,7 +378,7 @@
         <strong>Headline Verification:</strong> Purely open-source analysis (two public news videos + FAA/OSM + NWS/IEM/Open-Meteo meteorology) independently locked the blast origin to <code>±250 m</code> inside IAAAP, measured vertical wind shear across three altitude bands (<code>4.9 → 7.2 → 8.7 m/s</code>), and reproduced the exact SW–WSW dispersion corridor where EPA deployed 43 monitors—predicting plume arrival times at <code>AS01</code> (T+12m vs T+10–11m obs) and <code>AS02</code> (T+42m vs T+45m obs) to within ~3 minutes.
       </div>
 
-      <h3 style="margin-top:1.3rem;font-size:1.05rem;">Downwind Community Dispersion Summary (60-Realization Ensemble)</h3>
+      <h3 style="margin-top:1.3rem;font-size:1.05rem;">Downwind Community Dispersion Summary (60-Realization Ensemble) <span class="tag-proj">◆ Modeled Projection</span></h3>
       <div class="table-wrap">
         <table>
           <thead>
@@ -368,7 +435,7 @@
       </div>
 
       <div class="callout amber" style="margin-top:1.4rem;">
-        <strong>Auto-Updating Data Pipeline:</strong> Surrounding measurements are continuously refreshed by <code>fetch_measurements.py</code> via both a local <code>systemd --user</code> timer (<code>iaaap-plume-updater.timer</code>, every 10 min with atomic deduplicated <code>.json.gz</code> archival and auto-push) and a cloud backup GitHub Actions workflow (<code>.github/workflows/update-telemetry.yml</code>, every 15 min), plus direct in-browser CORS polling via the <strong>Live Refresh</strong> button above.
+        <strong>Auto-Updating Data Pipeline:</strong> Surrounding measurements are continuously refreshed by <code>fetch_measurements.py</code> via a local <code>systemd --user</code> timer (<code>iaaap-plume-updater.timer</code>, every 10 min as the sole git pusher with atomic deduplicated <code>.json.gz</code> archival), plus a manual-dispatch GitHub Actions fallback (<code>.github/workflows/update-telemetry.yml</code>) and direct in-browser CORS polling via the <strong>Live Refresh</strong> button above.
       </div>
     </section>
 

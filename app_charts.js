@@ -14,6 +14,8 @@ const state = {
   selectedStn: 'AS01',
   releasePct: 0.1, // default 0.1% Pb on interactive slider
   obs3d: null,
+  curSimSec: 660,
+  lastPlotlySyncMs: 0,
 };
 
 function fmtTimePost(sec) {
@@ -130,9 +132,11 @@ function renderStationChart() {
     shapes: [
       { type: 'line', x0: -25, x1: 165, y0: 0.15, y1: 0.15, line: { color: '#e879f9', width: 1.5, dash: 'dash' } },
       { type: 'line', x0: 0, x1: 0, y0: 1e-4, y1: 200, line: { color: '#ffffff', width: 1, dash: 'dot' } },
+      { type: 'line', x0: state.curSimSec / 60, x1: state.curSimSec / 60, y0: 1e-4, y1: 200, line: { color: '#00e5ff', width: 1.6, dash: 'dashdot' } },
     ],
     annotations: [
       { x: 142, y: Math.log10(0.18), text: '0.15 µg/m³ NAAQS ref', showarrow: false, font: { color: '#f0abfc', size: 10 } },
+      { x: Math.min(158, state.curSimSec / 60), y: 2.15, text: '3D Clock', showarrow: false, font: { color: '#00e5ff', size: 9.5 } },
     ],
     legend: { orientation: 'h', y: -0.28, font: { size: 10.5 } },
   };
@@ -256,6 +260,174 @@ function renderLiveTables() {
   }
 }
 
+function getLatestObsSec() {
+  let maxMin = 0;
+  for (const st of Object.values(state.liveData?.epa_xact || {})) {
+    const ser = st.series || [];
+    if (ser.length) maxMin = Math.max(maxMin, ser[ser.length - 1].min_post_blast ?? 0);
+  }
+  return Math.max(600, maxMin * 60);
+}
+
+function buildEpaLiveHud() {
+  const container = document.getElementById('epa-live-rows');
+  if (!container || !state.liveData || !state.staticData) return;
+  container.innerHTML = '';
+
+  const maxSec = 14400; // 240 min
+  const latestObsSec = getLatestObsSec();
+  const latestObsMin = Math.round(latestObsSec / 60);
+  const latestUtc = (state.liveData.summary?.xact_latest_obs_utc || '').slice(11, 16) || 'latest';
+  const livePct = Math.min(100, Math.max(2, (latestObsSec / maxSec) * 100));
+
+  const liveFill = document.getElementById('timeline-live-fill');
+  if (liveFill) liveFill.style.width = `${livePct.toFixed(1)}%`;
+  const tzLive = document.getElementById('tz-live-lbl');
+  const tzProj = document.getElementById('tz-proj-lbl');
+  if (tzLive) tzLive.textContent = `● Live EPA Obs Window (0 → ${latestObsMin}m · ${latestUtc}Z)`;
+  if (tzProj) tzProj.textContent = latestObsMin < 240 ? `◆ Projection Only (>${latestUtc}Z → +4h)` : '● Full 4h Observed';
+
+  const W = 156, H = 26;
+  const xOfMin = (m) => Math.max(0, Math.min(W, (m / 240.0) * W));
+  const liveEndX = xOfMin(latestObsMin);
+
+  for (const sid of ['AS01', 'AS02', 'AS03', 'AS04']) {
+    const live = state.liveData.epa_xact?.[sid];
+    const mod = state.staticData.receptors_model?.[sid];
+    if (!live) continue;
+
+    // Build dashed projected arrival polyline (normalized shape so arrival timing pulse is crisp!)
+    let projPoints = '';
+    if (mod && mod.ts_min && mod.mean_C_over_Q) {
+      const mx = Math.max(...mod.mean_C_over_Q, 1e-12);
+      projPoints = mod.ts_min.map((m, i) => {
+        const y = H - 3 - Math.pow(mod.mean_C_over_Q[i] / mx, 0.55) * (H - 7);
+        return `${xOfMin(m).toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+    }
+
+    // Build live EPA Xact observation stems/dots across T >= 0
+    const postObs = (live.series || []).filter((r) => r.min_post_blast >= 0 && r.min_post_blast <= 240);
+    const obsSvg = postObs.map((r) => {
+      const x = xOfMin(r.min_post_blast).toFixed(1);
+      if (r.value > 0) {
+        // Log-scaled bar height so 0.0002, 0.0021, and 0.0102 are all visually distinguishable!
+        const frac = Math.min(1, Math.log10(1 + r.value * 5000) / Math.log10(1 + 0.015 * 5000));
+        const h = Math.max(6, frac * (H - 5));
+        const yTop = (H - 2 - h).toFixed(1);
+        return `<line x1="${x}" y1="${H - 2}" x2="${x}" y2="${yTop}" stroke="#fbbf24" stroke-width="2.4" stroke-linecap="round"/>` +
+               `<circle cx="${x}" cy="${yTop}" r="2.2" fill="#fde047"/>`;
+      }
+      return `<circle cx="${x}" cy="${H - 3.2}" r="1.45" fill="#10b981" opacity="0.85"/>`;
+    }).join('');
+
+    const row = document.createElement('div');
+    row.className = 'epa-row';
+    row.id = `epa-row-${sid}`;
+    row.title = `Click station to inspect ${sid}; click sparkline to jump 3D clock`;
+    row.innerHTML = `
+      <div class="epa-stn-meta">
+        <strong>${sid}</strong>
+        <span>${live.dist_km} km</span>
+      </div>
+      <svg class="epa-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" data-sid="${sid}">
+        <rect x="0" y="0" width="${liveEndX.toFixed(1)}" height="${H}" fill="rgba(0,255,136,0.09)" rx="2"/>
+        <rect x="${liveEndX.toFixed(1)}" y="0" width="${(W - liveEndX).toFixed(1)}" height="${H}" fill="rgba(255,187,51,0.05)"/>
+        <line x1="${liveEndX.toFixed(1)}" y1="0" x2="${liveEndX.toFixed(1)}" y2="${H}" stroke="rgba(255,255,255,0.45)" stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="0" y1="${H - 2}" x2="${W}" y2="${H - 2}" stroke="#233146" stroke-width="1"/>
+        ${projPoints ? `<polyline points="${projPoints}" fill="none" stroke="#fbbf24" stroke-width="1.35" stroke-dasharray="3,2" opacity="0.82"/>` : ''}
+        ${obsSvg}
+        <line id="spark-head-${sid}" x1="10" y1="0" x2="10" y2="${H}" stroke="#00e5ff" stroke-width="1.6"/>
+      </svg>
+      <div id="epa-val-${sid}" class="epa-val zero">0.0000<small>µg/m³</small></div>
+    `;
+
+    // Clicking sparkline scrubs the 3D simulation directly to that timestamp!
+    const svgEl = row.querySelector('svg');
+    svgEl.onclick = (e) => {
+      e.stopPropagation();
+      const rect = svgEl.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const targetSec = Math.round(frac * maxSec);
+      if (state.obs3d) {
+        state.obs3d.playing = false;
+        const playBtn = document.getElementById('btn-play');
+        if (playBtn) playBtn.textContent = '▶ Play';
+        state.obs3d.simSec = targetSec;
+        state.obs3d.updateParticlesAtTime(targetSec);
+      }
+    };
+
+    // Clicking station meta inspects it in 3D AND selects it in the Plotly chart below!
+    row.onclick = () => {
+      state.selectedStn = sid;
+      document.querySelectorAll('.stn-tab').forEach((b) => b.classList.toggle('active', b.dataset.stn === sid));
+      renderStationChart();
+      if (state.obs3d) state.obs3d.inspectXactStation(sid);
+    };
+
+    container.appendChild(row);
+  }
+}
+
+function updateEpaHudAtTime(sec, xactSnap, maxObsSec) {
+  state.curSimSec = sec;
+  const maxSec = 14400;
+  const xPx = Math.max(0, Math.min(156, (sec / maxSec) * 156)).toFixed(1);
+  const isBeyond = sec > maxObsSec + 180;
+  const latestUtc = (state.liveData?.summary?.xact_latest_obs_utc || '').slice(11, 16) || 'latest';
+
+  const hudClk = document.getElementById('epa-hud-clock');
+  if (hudClk) hudClk.textContent = fmtTimePost(sec);
+
+  const hudBadge = document.getElementById('epa-hud-badge');
+  const modePill = document.getElementById('readout-mode');
+  if (isBeyond) {
+    if (hudBadge) { hudBadge.className = 'tag-proj'; hudBadge.textContent = `Proj Only (>${latestUtc}Z)`; }
+    if (modePill) { modePill.className = 'mode-pill proj'; modePill.textContent = `◆ Projection Only (>${latestUtc}Z)`; }
+  } else {
+    if (hudBadge) { hudBadge.className = 'tag-live'; hudBadge.textContent = '● Live Window'; }
+    if (modePill) { modePill.className = 'mode-pill live'; modePill.textContent = '● Live Obs + Proj'; }
+  }
+
+  for (const sid of ['AS01', 'AS02', 'AS03', 'AS04']) {
+    const head = document.getElementById(`spark-head-${sid}`);
+    if (head) { head.setAttribute('x1', xPx); head.setAttribute('x2', xPx); }
+
+    const snap = xactSnap?.[sid];
+    const row = document.getElementById(`epa-row-${sid}`);
+    const valEl = document.getElementById(`epa-val-${sid}`);
+    if (!snap || !row || !valEl) continue;
+
+    if (snap.status === 'future') {
+      row.className = 'epa-row future-mode';
+      valEl.className = 'epa-val future';
+      valEl.innerHTML = `No obs yet<small>&gt;${latestUtc}Z</small>`;
+    } else if (snap.status === 'trace') {
+      row.className = 'epa-row trace-active';
+      valEl.className = 'epa-val trace';
+      valEl.innerHTML = `${snap.value.toFixed(4)}<small>µg/m³ · trace</small>`;
+    } else {
+      row.className = 'epa-row';
+      valEl.className = 'epa-val zero';
+      valEl.innerHTML = `0.0000<small>µg/m³ · live</small>`;
+    }
+  }
+
+  // Gently sync the Plotly chart playhead cursor (throttled during continuous playback!)
+  const nowMs = performance.now();
+  const chartEl = document.getElementById('chart-xact');
+  if (window.Plotly && chartEl && chartEl.data && (!state.obs3d?.playing || nowMs - state.lastPlotlySyncMs > 750)) {
+    state.lastPlotlySyncMs = nowMs;
+    const xMin = Math.min(165, sec / 60);
+    Plotly.relayout('chart-xact', {
+      'shapes[2].x0': xMin,
+      'shapes[2].x1': xMin,
+      'annotations[1].x': Math.min(158, xMin),
+    }).catch(() => {});
+  }
+}
+
 async function liveBrowserRefresh() {
   const btn = document.getElementById('btn-live-refresh');
   btn.disabled = true;
@@ -303,7 +475,11 @@ async function liveBrowserRefresh() {
     renderHeroKPIs();
     renderStationChart();
     renderLiveTables();
-    if (state.obs3d) state.obs3d.updateLiveTelemetry(state.liveData);
+    buildEpaLiveHud();
+    if (state.obs3d) {
+      state.obs3d.updateLiveTelemetry(state.liveData);
+      state.obs3d.updateParticlesAtTime(state.obs3d.simSec);
+    }
   } catch (err) {
     console.warn('Live browser refresh partial fallback:', err);
   } finally {
@@ -326,6 +502,7 @@ async function boot() {
 
   renderHeroKPIs();
   renderLiveTables();
+  buildEpaLiveHud();
   renderStationChart();
   renderSensitivityChart();
 
@@ -338,10 +515,11 @@ async function boot() {
   const inspBody = document.getElementById('insp-body');
 
   const obs = new Plume3DObservatory(document.getElementById('canvas-3d'), {
-    onTick: (sec, pblM, airPct) => {
+    onTick: (sec, pblM, airPct, xactSnap, maxObsSec) => {
       sliderTime.value = Math.round(sec);
       readoutTime.textContent = `${fmtTimePost(sec)} · ${fmtCstClock(sec)}`;
       readoutPbl.textContent = `PBL: ${Math.round(pblM)} m · Airborne: ${airPct}%`;
+      updateEpaHudAtTime(sec, xactSnap, maxObsSec);
     },
     onSelect: (info) => {
       inspTitle.textContent = info.title;
@@ -350,8 +528,22 @@ async function boot() {
     },
   });
   state.obs3d = obs;
+  const qp = new URLSearchParams(window.location.search);
+  if (qp.has('t')) obs.simSec = Math.max(0, Math.min(14400, Number(qp.get('t')) || 0));
+  if (qp.get('paused') === '1') obs.playing = false;
   await obs.init(state.staticData, demData, plumeData, state.liveData);
   document.getElementById('loading-3d').style.display = 'none';
+  if (!obs.playing) document.getElementById('btn-play').textContent = '▶ Play';
+
+  // Wire collapsible Live EPA HUD toggle
+  const epaHud = document.getElementById('hud-epa-live');
+  const epaToggle = document.getElementById('btn-epa-collapse');
+  if (epaHud && epaToggle) {
+    epaToggle.onclick = () => {
+      const collapsed = epaHud.classList.toggle('collapsed');
+      epaToggle.textContent = collapsed ? 'Show' : 'Hide';
+    };
+  }
 
   // Wire 3D HUD controls
   document.getElementById('insp-close').onclick = () => inspBox.classList.remove('show');
@@ -376,6 +568,7 @@ async function boot() {
     obs.applyVerticalExaggeration(v);
   };
   for (const [id, layer] of [
+    ['chk-particles', 'particles'],
     ['chk-sightlines', 'sightlines'], ['chk-sensors', 'sensors'],
     ['chk-winds', 'winds'], ['chk-lids', 'lids'], ['chk-labels', 'labels'],
   ]) {
