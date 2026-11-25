@@ -1,0 +1,67 @@
+{
+  "source": "USGS/EPA Water Quality Portal (waterqualitydata.us)",
+  "radius_mi": 15,
+  "since": "2010-01-01",
+  "sites": [
+    {
+      "id": "21IOWA_WQX-10560002",
+      "name": "Skunk River at Augusta",
+      "type": "River/Stream",
+      "org": "Iowa DNR Surface Water Monitoring Data  (State)",
+      "lat": 40.7534,
+      "lon": -91.27559,
+      "total_samples": 40,
+      "detect_count": 15,
+      "nondetect_count": 25,
+      "min_ugL": 0.05,
+      "median_ugL": 0.15,
+      "max_ugL": 0.36,
+      "latest_date": "2023-06-07"
+    },
+    {
+      "id": "IL_EPA_WQX-LZF-01",
+      "name": "Honey Creek",
+      "type": "River/Stream",
+      "org": "illinois epa  (State)",
+      "lat": 40.6919444,
+      "lon": -91.045,
+      "total_samples": 4,
+      "detect_count": 1,
+      "nondetect_count": 3,
+      "min_ugL": 1.88,
+      "median_ugL": 1.88,
+      "max_ugL": 1.88,
+      "latest_date": "2014-10-06"
+    },
+    {
+      "id": "IL_EPA_WQX-LZF-04",
+      "name": "Honey Creek",
+      "type": "River/Stream",
+      "org": "illinois epa  (State)",
+      "lat": 40.698294,
+      "lon": -91.032175,
+      "total_samples": 2,
+      "detect_count": 1,
+      "nondetect_count": 1,
+      "min_ugL": 5.12,
+      "median_ugL": 5.12,
+      "max_ugL": 5.12,
+      "latest_date": "2014-08-11"
+    },
+    {
+      "id": "USGS-404933091105701",
+      "name": "070N03W34AABA 24618 1978West Burlington 5",
+      "type": "Well",
+      "org": "USGS Iowa Water Science Center",
+      "lat": 40.82587176,
+      "lon": -91.1826476,
+      "total_samples": 1,
+      "detect_count": 1,
+      "nondetect_count": 0,
+      "min_ugL": 0.115,
+      "median_ugL": 0.115,
+      "max_ugL": 0.115,
+      "latest_date": "2017-05-24"
+    }
+  ]
+}

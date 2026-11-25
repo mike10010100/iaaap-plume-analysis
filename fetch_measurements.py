@@ -64,6 +64,14 @@ SPATIAL_HRRR_NODES = [
     ("Kirksville", 40.1948, -92.5832, 295.0),
     ("Ottumwa",    41.0200, -92.4113, 258.0),
 ]
+USGS_GAUGE_IDS = [
+    ("05474000", "Skunk River at Augusta, IA", "Direct receiving river for IAAAP Long Creek & Brush Creek"),
+    ("05474500", "Mississippi River at Keokuk, IA", "Regional mainstem downstream of Skunk & Des Moines confluences"),
+    ("05490500", "Des Moines River at Keosauqua, IA", "Major river crossing SW plume corridor"),
+    ("05490600", "Des Moines River at St. Francisville, MO", "Lower Des Moines River under SW corridor"),
+    ("05495000", "Fox River at Wayland, MO", "Small tributary near Kahoka, MO under SW corridor"),
+    ("05473400", "Cedar Creek near Oakland Mills, IA", "Upper Skunk tributary NW of corridor (control)"),
+]
 Z_GRID_M = [10.0, 80.0, 120.0, 180.0, 250.0, 450.0, 665.0, 880.0, 1330.0]
 
 
@@ -767,6 +775,175 @@ def build_wind_assimilation(asos: dict, rwis: dict, om_hourly_raw: dict, hrrr_no
     }
 
 
+def fetch_usgs_gauges():
+    """Fetch live USGS NWIS instantaneous stream discharge, stage, temp & turbidity for 6 corridor gauges."""
+    sites_csv = ",".join(sid for sid, _, _ in USGS_GAUGE_IDS)
+    role_map = {sid: (nm, role) for sid, nm, role in USGS_GAUGE_IDS}
+    url = (
+        f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites={sites_csv}"
+        "&parameterCd=00060,00065,00010,63680&siteStatus=active"
+    )
+    data = http_get_json(url, timeout=25)
+    by_site = {}
+    for ts in (data.get("value") or {}).get("timeSeries") or []:
+        si = ts.get("sourceInfo") or {}
+        sid = (si.get("siteCode") or [{}])[0].get("value")
+        if not sid:
+            continue
+        geo = (si.get("geoLocation") or {}).get("geogLocation") or {}
+        lat, lon = float(geo.get("latitude") or 0.0), float(geo.get("longitude") or 0.0)
+        vcode = ((ts.get("variable") or {}).get("variableCode") or [{}])[0].get("value")
+        vals = ((ts.get("values") or [{}])[0].get("value")) or []
+        latest = vals[-1] if vals else {}
+        raw_v = latest.get("value")
+        try:
+            fval = float(raw_v)
+            if fval <= -99999:
+                fval = None
+        except Exception:
+            fval = None
+        nm, role = role_map.get(sid, (si.get("siteName", sid), "Regional gauge"))
+        dkm, brg = dist_brg_km(ORIGIN_LAT, ORIGIN_LON, lat, lon)
+        rec = by_site.setdefault(sid, {
+            "site_id": sid, "name": nm, "role": role,
+            "lat": round(lat, 4), "lon": round(lon, 4),
+            "dist_km": dkm, "bearing_deg": brg,
+            "discharge_cfs": None, "discharge_m3s": None,
+            "gage_height_ft": None, "water_temp_c": None, "turbidity_fnu": None,
+            "valid_time": None,
+        })
+        if latest.get("dateTime"):
+            rec["valid_time"] = latest["dateTime"]
+        if vcode == "00060" and fval is not None:
+            rec["discharge_cfs"] = round(fval, 1)
+            rec["discharge_m3s"] = round(fval * 0.0283168, 2)
+        elif vcode == "00065" and fval is not None:
+            rec["gage_height_ft"] = round(fval, 2)
+        elif vcode == "00010" and fval is not None:
+            rec["water_temp_c"] = round(fval, 1)
+        elif vcode == "63680" and fval is not None:
+            rec["turbidity_fnu"] = round(fval, 1)
+    return sorted(by_site.values(), key=lambda r: r["dist_km"])
+
+
+def fetch_precip_runoff_7d():
+    """Fetch 8-day hourly precipitation, rain/snowfall, and surface soil temperature/moisture at IAAAP."""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={ORIGIN_LAT}&longitude={ORIGIN_LON}"
+        "&hourly=precipitation,rain,snowfall,soil_temperature_0cm,soil_moisture_0_to_1cm,temperature_2m"
+        "&past_days=1&forecast_days=7&timezone=UTC"
+    )
+    data = http_get_json(url, timeout=25)
+    h = data.get("hourly") or {}
+    times = h.get("time") or []
+    precip = h.get("precipitation") or []
+    rain = h.get("rain") or []
+    snow = h.get("snowfall") or []
+    stemp = h.get("soil_temperature_0cm") or []
+    smois = h.get("soil_moisture_0_to_1cm") or []
+    t2m = h.get("temperature_2m") or []
+
+    rows = []
+    # Only keep post-detonation (Nov 25 15:00Z onward) + compact 3h/hourly points
+    tot_7d_mm = 0.0
+    tot_24h_mm = 0.0
+    max_rain_hr = 0.0
+    first_rain_runoff_utc = None
+    first_wet_utc = None
+    now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:00")
+    t_24h = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)).strftime("%Y-%m-%dT%H:00")
+
+    for i, ts in enumerate(times):
+        if ts < "2026-11-25T12:00":
+            continue
+        p = float(precip[i] or 0.0) if i < len(precip) else 0.0
+        r_ = float(rain[i] or 0.0) if i < len(rain) else 0.0
+        sn = float(snow[i] or 0.0) if i < len(snow) else 0.0
+        st = float(stemp[i]) if (i < len(stemp) and stemp[i] is not None) else None
+        sm = float(smois[i]) if (i < len(smois) and smois[i] is not None) else None
+        ta = float(t2m[i]) if (i < len(t2m) and t2m[i] is not None) else None
+        if ts >= now_iso:
+            tot_7d_mm += p
+            if ts <= t_24h:
+                tot_24h_mm += p
+            if r_ > max_rain_hr:
+                max_rain_hr = r_
+            if first_wet_utc is None and p >= 0.2:
+                first_wet_utc = ts + ":00Z"
+            if first_rain_runoff_utc is None and r_ >= 0.6 and (st is None or st > 1.5):
+                first_rain_runoff_utc = ts + ":00Z"
+        rows.append({
+            "ts_utc": ts + ":00Z",
+            "precip_mm": round(p, 2),
+            "rain_mm": round(r_, 2),
+            "snow_cm": round(sn, 2),
+            "soil_temp_c": round(st, 1) if st is not None else None,
+            "soil_moist": round(sm, 3) if sm is not None else None,
+            "temp_c": round(ta, 1) if ta is not None else None,
+        })
+    return {
+        "source": "Open-Meteo NOAA/GFS+HRRR 7-Day QPF & Soil Model at IAAAP",
+        "total_24h_mm": round(tot_24h_mm, 2),
+        "total_7d_mm": round(tot_7d_mm, 2),
+        "total_7d_in": round(tot_7d_mm / 25.4, 2),
+        "max_rain_mm_hr": round(max_rain_hr, 2),
+        "first_wet_utc": first_wet_utc,
+        "first_rain_runoff_utc": first_rain_runoff_utc,
+        "hourly": rows,
+    }
+
+
+def fetch_epa_lab_watcher():
+    """Poll EPA Region 7 ArcGIS Response Viewer & portal to auto-detect any newly published soil/water/dust lab layers."""
+    wm = http_get_json(
+        "https://www.arcgis.com/sharing/rest/content/items/55521a18cb4849089d04c8575b5f8ccb/data?f=json",
+        timeout=20,
+    )
+    layers = []
+    media_keywords = ("soil", "water", "wipe", "dust", "sediment", "cassette", "lab", "sample")
+    new_media_layers = []
+    for lyr in wm.get("operationalLayers") or []:
+        title = str(lyr.get("title") or "")
+        u = lyr.get("url") or ""
+        cnt = None
+        if u and "FeatureServer" in u:
+            try:
+                cr = http_get_json(f"{u}/query?where=1%3D1&returnCountOnly=true&f=json", timeout=12)
+                cnt = cr.get("count")
+            except Exception:
+                cnt = None
+        is_air_known = ("xact" in title.lower()) or ("air sampling and monitoring location" in title.lower())
+        if not is_air_known and any(k in title.lower() for k in media_keywords):
+            new_media_layers.append(title)
+        layers.append({"title": title, "count": cnt, "url": u})
+
+    portal = http_get_json(
+        "https://www.arcgis.com/sharing/rest/search?q=owner:Region7.Start_EPAEXT&num=15&sortField=modified&sortOrder=desc&f=json",
+        timeout=20,
+    )
+    recent_items = []
+    for it in portal.get("results") or []:
+        mod_ms = it.get("modified") or 0
+        mod_dt = datetime.datetime.fromtimestamp(mod_ms / 1000.0, datetime.timezone.utc)
+        if mod_dt.strftime("%Y-%m-%d") >= "2026-11-24":
+            t_low = str(it.get("title") or "").lower()
+            if any(k in t_low for k in ("soil", "water", "wipe", "dust", "sediment", "lab")) and "iaaap" in t_low:
+                if it.get("title") not in new_media_layers:
+                    new_media_layers.append(it.get("title"))
+            recent_items.append({
+                "title": it.get("title"),
+                "type": it.get("type"),
+                "modified_utc": mod_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            })
+    return {
+        "viewer_url": "https://experience.arcgis.com/experience/1ddcf8b9d8314971b00dac8893ae9cd6",
+        "webmap_layers": layers,
+        "recent_portal_items": recent_items[:8],
+        "new_soil_water_layers": new_media_layers,
+        "soil_water_lab_published": len(new_media_layers) > 0,
+    }
+
+
 def log_line(msg: str):
     print(msg, flush=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -835,6 +1012,9 @@ def run_fetch(push: bool = False):
         lambda: build_wind_assimilation(asos, rwis, om.get("iaaap_hourly_raw"), om.get("hrrr_nodes_raw")),
         prev_bundle.get("wind_assimilation") or {},
     )
+    usgs_gauges = safe("usgs_gauges", fetch_usgs_gauges, prev_bundle.get("usgs_gauges") or [])
+    precip_7d = safe("precip_runoff_7d", fetch_precip_runoff_7d, prev_bundle.get("precip_runoff_7d") or {})
+    epa_watcher = safe("epa_lab_watcher", fetch_epa_lab_watcher, prev_bundle.get("epa_lab_watcher") or {})
 
     save_archive(archive)
 
@@ -843,6 +1023,7 @@ def run_fetch(push: bool = False):
     kbrl = asos.get("KBRL", {}).get("latest") or {}
     as02_fmax = (xact.get("AS02") or {}).get("f_max_pct")
     as03_fmax = (xact.get("AS03") or {}).get("f_max_pct")
+    skunk = next((g for g in usgs_gauges if g.get("site_id") == "05474000"), {})
 
     total_24h_obs = (
         sum(s.get("obs_count", 0) for s in xact.values())
@@ -867,6 +1048,12 @@ def run_fetch(push: bool = False):
             "kbrl_valid_utc": kbrl.get("valid_utc"),
             "asos_stations_live": len(asos),
             "rwis_stations_live": len(rwis),
+            "usgs_gauges_live": len(usgs_gauges),
+            "skunk_augusta_cfs": skunk.get("discharge_cfs"),
+            "skunk_augusta_m3s": skunk.get("discharge_m3s"),
+            "precip_7d_mm": precip_7d.get("total_7d_mm"),
+            "first_rain_runoff_utc": precip_7d.get("first_rain_runoff_utc"),
+            "epa_soil_water_published": epa_watcher.get("soil_water_lab_published", False),
             "total_24h_obs": total_24h_obs,
             "wind_obs_cutoff_min": wind_assim.get("obs_cutoff_min", 0),
             "wind_obs_cutoff_utc": wind_assim.get("obs_cutoff_utc"),
@@ -875,6 +1062,9 @@ def run_fetch(push: bool = False):
         "epa_monitors": monitors,
         "asos": asos,
         "rwis": rwis,
+        "usgs_gauges": usgs_gauges,
+        "precip_runoff_7d": precip_7d,
+        "epa_lab_watcher": epa_watcher,
         "openmeteo_aq": om.get("corridor_aq", []),
         "openmeteo_aq_24h": om.get("corridor_aq_24h", {}),
         "openmeteo_met_24h": om.get("met_24h", []),

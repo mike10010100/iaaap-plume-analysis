@@ -1066,3 +1066,50 @@ body.mode-simple .hud-top-left .expert-preset { display: none !important; }
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
 }
+
+/* Ground, Soil & Water Section */
+.gw-watcher-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.36);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.84rem;
+  color: #dbeafe;
+}
+.gw-watcher-bar.published {
+  background: rgba(0, 255, 136, 0.10);
+  border-color: rgba(0, 255, 136, 0.48);
+  color: #d1fae5;
+}
+.gw-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+}
+@media (max-width: 900px) { .gw-summary-grid { grid-template-columns: 1fr; } }
+.gw-card {
+  background: #0b121e;
+  border: 1px solid #25364d;
+  border-radius: 10px;
+  padding: 0.95rem 1.05rem;
+}
+.gw-card.safe { border-top: 3px solid var(--green); }
+.gw-card.warn { border-top: 3px solid var(--amber); }
+.gw-card.info { border-top: 3px solid var(--cyan); }
+.gw-card h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+  color: #f8fafc;
+}
+.gw-card p {
+  margin: 0;
+  font-size: 0.83rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+}

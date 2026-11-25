@@ -14,6 +14,8 @@ const state = {
   selectedStn: 'AS01',
   wxMetric: 'speed', // 'speed' | 'direction' | 'temp'
   releasePct: 0.1, // default 0.1% Pb on interactive slider
+  gwAirPct: 0.028, // default EPA AS02 airborne bound (%)
+  gwRunoffPct: 0.10, // default hypothetical 6-hr storm pad wash-off (%)
   obs3d: null,
   curSimSec: 660,
   lastPlotlySyncMs: 0,
@@ -87,7 +89,7 @@ function renderHeroKPIs() {
     }
   }
   document.getElementById('kpi-net-val').textContent =
-    `${sum.epa_monitors_deployed || 43} EPA · ${sum.asos_stations_live || 10} ASOS · ${sum.rwis_stations_live || 5} RWIS`;
+    `${sum.epa_monitors_deployed || 43} EPA · ${sum.asos_stations_live || 10} ASOS · ${sum.usgs_gauges_live || 6} USGS`;
   const netSub = document.getElementById('kpi-net-sub');
   if (netSub) {
     const n24 = sum.total_24h_obs ? `${sum.total_24h_obs.toLocaleString()} 24h+ obs` : '24h+ archived';
@@ -681,6 +683,7 @@ async function liveBrowserRefresh() {
     renderHeroKPIs();
     renderStationChart();
     renderLiveTables();
+    renderGroundWaterSection();
     buildEpaLiveHud();
     if (state.obs3d) {
       state.obs3d.updateLiveTelemetry(state.liveData);
@@ -694,6 +697,211 @@ async function liveBrowserRefresh() {
     btn.disabled = false;
     btn.textContent = '↻ Live Refresh';
   }
+}
+
+function renderGroundWaterSection() {
+  const gw = state.staticData?.ground_water;
+  const live = state.liveData || {};
+  if (!gw) return;
+
+  // 1. Live EPA Soil / Dust / Water Lab Watcher Bar
+  const watchBar = document.getElementById('gw-epa-watcher');
+  const watchTxt = document.getElementById('gw-watcher-text');
+  const w = live.epa_lab_watcher || {};
+  if (watchBar && watchTxt) {
+    if (w.soil_water_lab_published && (w.new_soil_water_layers || []).length > 0) {
+      watchBar.classList.add('published');
+      watchTxt.innerHTML = `<span class="badge badge-green">NEW LAB LAYER DETECTED</span> EPA published: <strong>${w.new_soil_water_layers.join(', ')}</strong>.`;
+    } else {
+      watchBar.classList.remove('published');
+      const xLayer = (w.webmap_layers || []).find((l) => String(l.title || '').toLowerCase().includes('xact'));
+      const latestMod = (w.recent_portal_items || [])[0]?.modified_utc?.slice(11, 16) || 'live';
+      watchTxt.innerHTML = `EPA collected <strong>1,216 pre-blast baseline samples</strong> (650 soil, 297 dust, 210 water, 59 air) and is actively sampling post-blast. Public ArcGIS viewer (checked ${latestMod}Z) currently hosts <strong>${xLayer?.count ?? 321} Xact air rows</strong> + <strong>43 air sites</strong>; post-blast soil/dust/water ICP-MS lab layers are <strong>pending (24–72h lab turnaround)</strong> and auto-monitored every 10 min.`;
+    }
+  }
+
+  // 2. Plain-English 3-Card Summary
+  const p5 = (gw.centerline_profile || []).find((r) => r.dist_km === 8.0) || {};
+  const p12 = (gw.centerline_profile || []).find((r) => r.dist_km === 20.0) || {};
+  const offEl = document.getElementById('gw-card-offsite');
+  if (offEl) {
+    offEl.innerHTML = `At the live EPA airborne bound (<code>≤0.028%</code> / <code>≤0.85 kg</code>), modeled surface dust at <strong>5 miles SW</strong> is at most <strong>${(p5.wipe_ug_ft2_bound ?? 0.54).toFixed(2)} µg/ft²</strong> (vs. EPA's <strong>5–10 µg/ft²</strong> indoor floor limit) and <strong>+${(p5.soil_ppm_1cm_bound ?? 0.0004).toFixed(4)} ppm</strong> in top-1 cm soil (vs. <strong>200 ppm</strong> EPA limit &amp; 15–30 ppm normal Iowa soil)—dropping to <strong>${(p12.wipe_ug_ft2_bound ?? 0.09).toFixed(2)} µg/ft²</strong> by 12 miles SW. EPA still recommends <strong>wet-wiping</strong> high-contact outdoor surfaces near the 5-mile zone.`;
+  }
+
+  const skunk = (live.usgs_gauges || []).find((g) => g.site_id === '05474000');
+  const pr = live.precip_runoff_7d || {};
+  const watEl = document.getElementById('gw-card-water');
+  if (watEl) {
+    const flowStr = skunk?.discharge_cfs != null ? `<strong>${Math.round(skunk.discharge_cfs).toLocaleString()} cfs</strong> (${skunk.discharge_m3s} m³/s)` : 'live USGS flow';
+    const rainWin = pr.first_rain_runoff_utc
+      ? `<strong>${pr.first_rain_runoff_utc.slice(5, 10)} (${pr.first_rain_runoff_utc.slice(11, 16)}Z)</strong>`
+      : 'no heavy rain in next 7 days';
+    watEl.innerHTML = `Blast-pad runoff drains via <strong>Long Creek</strong> south into the <strong>Skunk River at Augusta</strong> (6.2 km S, live USGS flow ${flowStr}; historical WQP lead baseline <strong>0.15–0.36 µg/L</strong>) and into the <strong>Mississippi River</strong>. Burlington draws water <em>upstream</em>; Fort Madison uses Reverse-Osmosis wells. 7-day forecast shows <strong>${pr.total_7d_mm ?? 13.3} mm (${pr.total_7d_in ?? 0.52} in)</strong> total precip—tonight's light freeze-mix wets dust, while the first thawed rain wash-off window starts ${rainWin}.`;
+  }
+
+  // 3. Drinking Water Source Protection Table (Visible in BOTH Simple & Expert)
+  const wsBody = document.getElementById('tbl-water-sources');
+  if (wsBody) {
+    wsBody.innerHTML = '';
+    for (const r of (gw.municipal_water_sources || [])) {
+      const cls = r.risk_tier.includes('Monitor') ? 'badge-amber' : 'badge-green';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${r.city}</strong></td>
+        <td style="white-space:normal;min-width:220px">${r.source}</td>
+        <td style="white-space:normal;min-width:240px">${r.exposure_pathway}</td>
+        <td><span class="badge ${cls}">${r.risk_tier}</span></td>`;
+      wsBody.appendChild(tr);
+    }
+  }
+
+  // 4. Live USGS NWIS Stream Gauges Table (Expert)
+  const usgsBody = document.getElementById('tbl-usgs-body');
+  if (usgsBody) {
+    usgsBody.innerHTML = '';
+    for (const g of (live.usgs_gauges || [])) {
+      const flowTxt = g.discharge_cfs != null
+        ? `<strong>${Math.round(g.discharge_cfs).toLocaleString()} cfs</strong> (${g.discharge_m3s} m³/s)`
+        : '<span style="color:var(--muted)">WQ / Temp only</span>';
+      const extras = [
+        g.gage_height_ft != null ? `${g.gage_height_ft} ft` : null,
+        g.water_temp_c != null ? `${g.water_temp_c}°C` : null,
+        g.turbidity_fnu != null ? `${g.turbidity_fnu} FNU` : null,
+      ].filter(Boolean).join(' · ') || '—';
+      const badge = g.site_id === '05474000' ? ' <span class="badge badge-cyan">Direct Outfall</span>' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><code>${g.site_id}</code></td>
+        <td><strong>${g.name}</strong>${badge}</td>
+        <td style="white-space:normal;min-width:210px">${g.role}</td>
+        <td>${g.dist_km} km @ ${g.bearing_deg}°</td>
+        <td>${flowTxt}</td>
+        <td>${extras}</td>
+        <td>${String(g.valid_time || '').slice(11, 16) || '—'}</td>`;
+      usgsBody.appendChild(tr);
+    }
+  }
+
+  // 5. Federal WQP Historical Lead Baseline Table (Expert)
+  const wqpBody = document.getElementById('tbl-wqp-body');
+  if (wqpBody) {
+    wqpBody.innerHTML = '';
+    for (const s of (gw.wqp_historical_baseline || [])) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><code>${s.id}</code></td>
+        <td><strong>${s.name}</strong></td>
+        <td>${s.type}</td>
+        <td>${s.total_samples} (${s.detect_count} detects)</td>
+        <td><code>${s.median_ugL.toFixed(3)}</code></td>
+        <td><code>${s.max_ugL.toFixed(3)}</code></td>
+        <td>${s.latest_date}</td>`;
+      wqpBody.appendChild(tr);
+    }
+  }
+
+  renderGroundWaterCharts();
+}
+
+function renderGroundWaterCharts() {
+  if (!window.Plotly || !state.staticData?.ground_water || !state.liveData) return;
+  const gw = state.staticData.ground_water;
+  const prof = gw.centerline_profile || [];
+  const baseLayout = {
+    paper_bgcolor: '#0b111b',
+    plot_bgcolor: '#111927',
+    font: { color: '#cbd5e1', family: 'Inter, sans-serif', size: 11 },
+    margin: { t: 44, r: 52, b: 64, l: 60 },
+  };
+
+  // Chart 1: Off-Site Surface Wipe (µg/ft²) & Top-1cm Soil (+ppm) vs Distance!
+  const qSelKg = TOTAL_PB_KG * (state.gwAirPct / 100.0);
+  const qBoundKg = TOTAL_PB_KG * (gw.airborne_bound_pct / 100.0);
+  const distsMi = prof.map((r) => r.dist_mi);
+  const wipeSel = prof.map((r) => Math.max(1e-4, r.dep_frac_m2 * qSelKg * 1e9 * 0.09290304));
+  const wipeBound = prof.map((r) => Math.max(1e-4, r.dep_frac_m2 * qBoundKg * 1e9 * 0.09290304));
+  const soilSel = prof.map((r) => Math.max(1e-6, (r.dep_frac_m2 * qSelKg * 1e6) / 14.0));
+
+  Plotly.react('chart-gw-surface', [
+    { x: distsMi, y: wipeSel, mode: 'lines+markers', name: `Selected Wipe (${state.gwAirPct}% Pb, µg/ft²)`, line: { color: '#00e5ff', width: 2.8 }, marker: { size: 6 } },
+    { x: distsMi, y: wipeBound, mode: 'lines', name: 'EPA Xact Bound (0.028%, µg/ft²)', line: { color: '#00ff88', width: 2, dash: 'dash' } },
+    { x: distsMi, y: soilSel, yaxis: 'y2', mode: 'lines+markers', name: 'Top-1cm Soil (+ppm, right axis)', line: { color: '#ffbb33', width: 2, dash: 'dot' }, marker: { size: 5 } },
+  ], {
+    ...baseLayout,
+    title: { text: 'Modeled Downwind Surface Dust Wipe (µg/ft²) & Topsoil (+ppm)', font: { size: 13, color: '#fff' } },
+    xaxis: { title: 'Downwind Distance SW Along Plume Axis (miles)', gridcolor: '#1e2c40' },
+    yaxis: { title: 'Surface Dust Loading (µg/ft²)', type: 'log', gridcolor: '#1e2c40', range: [-3, 3.2] },
+    yaxis2: { title: 'Top-1 cm Soil Increment (+ppm)', type: 'log', overlaying: 'y', side: 'right', showgrid: false, range: [-6, 0.5] },
+    shapes: [
+      { type: 'line', x0: 0, x1: 38, y0: 5, y1: 5, line: { color: '#f59e0b', width: 1.4, dash: 'dash' } },
+      { type: 'line', x0: 0, x1: 38, y0: 10, y1: 10, line: { color: '#ef4444', width: 1.5, dash: 'dash' } },
+      { type: 'line', x0: 5, x1: 5, y0: 1e-3, y1: 1500, line: { color: '#94a3b8', width: 1, dash: 'dot' } },
+    ],
+    annotations: [
+      { x: 28, y: Math.log10(6.2), text: '5 µg/ft² EPA floor action', showarrow: false, font: { color: '#fcd34d', size: 9.5 } },
+      { x: 28, y: Math.log10(13.5), text: '10 µg/ft² classic floor std', showarrow: false, font: { color: '#fca5a5', size: 9.5 } },
+      { x: 5.4, y: 2.9, text: '5-mi evac edge', showarrow: false, xanchor: 'left', font: { color: '#cbd5e1', size: 9.5 } },
+    ],
+    legend: { orientation: 'h', y: -0.28, font: { size: 10 } },
+  }, { responsive: true, displayModeBar: false });
+
+  // Chart 2: Live 7-Day Precipitation & Soil Freeze/Thaw Runoff Trigger Window!
+  const ph = state.liveData.precip_runoff_7d?.hourly || [];
+  const pts = ph.map((r) => r.ts_utc.slice(5, 16).replace('T', ' ') + 'Z');
+  Plotly.react('chart-gw-precip', [
+    { x: pts, y: ph.map((r) => r.rain_mm), type: 'bar', name: 'Liquid Rain (mm/hr)', marker: { color: '#38bdf8' } },
+    { x: pts, y: ph.map((r) => (r.snow_cm || 0) * 1.0), type: 'bar', name: 'Snowfall (cm/hr)', marker: { color: '#c4b5fd' } },
+    { x: pts, y: ph.map((r) => r.soil_temp_c), yaxis: 'y2', mode: 'lines', name: 'Surface Soil Temp (°C)', line: { color: '#fbbf24', width: 2.2 } },
+  ], {
+    ...baseLayout,
+    barmode: 'stack',
+    title: { text: 'Live 7-Day IAAAP Precipitation & Soil Freeze/Thaw Runoff Watch', font: { size: 13, color: '#fff' } },
+    xaxis: { title: 'Forecast Time (UTC)', gridcolor: '#1e2c40', nticks: 7 },
+    yaxis: { title: 'Hourly Rain (mm) / Snow (cm)', gridcolor: '#1e2c40', rangemode: 'tozero' },
+    yaxis2: { title: 'Soil Surface Temp (°C)', overlaying: 'y', side: 'right', showgrid: false },
+    shapes: [
+      { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 0, y1: 0, yref: 'y2', line: { color: '#93c5fd', width: 1.2, dash: 'dot' } },
+    ],
+    legend: { orientation: 'h', y: -0.28, font: { size: 10 } },
+  }, { responsive: true, displayModeBar: false });
+
+  // Chart 3: Live-USGS-Scaled On-Site Blast-Pad 6-Hour Storm Wash-Off Dilution Screening!
+  const skunkM3s = (state.liveData.usgs_gauges || []).find((g) => g.site_id === '05474000')?.discharge_m3s || 92.3;
+  const longCreekStormM3s = 1.4; // ~50 cfs typical stormflow for 61.1 km^2 HUC12 Long Creek
+  const missM3s = 1400.0;        // ~49,400 cfs typical Nov Mississippi River flow at Keokuk
+  const pulseSec = 6 * 3600;     // 6-hour storm flush window
+  const mobKg = 3049.0 * (state.gwRunoffPct / 100.0);
+  // Concentration (ug/L) = (mobKg * 1e9 ug) / (Q_m3s * pulseSec * 1000 L/m3) = (mobKg * 1e6) / (Q_m3s * pulseSec)
+  const calcUgL = (qM3s) => (mobKg * 1e6) / (qM3s * pulseSec);
+  const rivers = [
+    'Long Creek Outfall<br>(HUC12 ~50 cfs stormflow)',
+    `Skunk River @ Augusta<br>(Live USGS ${Math.round(skunkM3s / 0.0283168).toLocaleString()} cfs)`,
+    'Mississippi @ Keokuk<br>(~50,000 cfs mainstem)',
+  ];
+  const totUgL = [calcUgL(longCreekStormM3s), calcUgL(skunkM3s), calcUgL(missM3s)];
+  const dissUgL = totUgL.map((v) => v * 0.10); // ~90% of metallic/oxide Pb binds to suspended clay/silt (Kd)
+
+  Plotly.react('chart-gw-runoff', [
+    { x: rivers, y: totUgL, type: 'bar', name: 'Total-Recoverable Storm Pulse (µg/L, incl. suspended silt)', marker: { color: '#f59e0b' }, text: totUgL.map((v) => `${v.toFixed(2)} µg/L`), textposition: 'outside' },
+    { x: rivers, y: dissUgL, type: 'bar', name: 'Est. Dissolved Fraction (~10% bioavailable, µg/L)', marker: { color: '#38bdf8' }, text: dissUgL.map((v) => `${v.toFixed(2)} µg/L`), textposition: 'outside' },
+  ], {
+    ...baseLayout,
+    barmode: 'group',
+    margin: { t: 48, r: 22, b: 68, l: 62 },
+    title: { text: `On-Site Pad Storm-Flush Dilution Screening (${state.gwRunoffPct}% = ${mobKg.toFixed(2)} kg Pb mobilized over 6 hrs)`, font: { size: 13, color: '#fff' } },
+    yaxis: { title: 'Storm-Pulse Lead Conc. (µg/L = ppb)', type: 'log', gridcolor: '#1e2c40', range: [-2, 3.2] },
+    shapes: [
+      { type: 'line', x0: -0.5, x1: 2.5, y0: 15, y1: 15, line: { color: '#ef4444', width: 1.8, dash: 'dash' } },
+      { type: 'line', x0: -0.5, x1: 2.5, y0: 5.5, y1: 5.5, line: { color: '#a855f7', width: 1.5, dash: 'dot' } },
+      { type: 'line', x0: -0.5, x1: 2.5, y0: 0.15, y1: 0.15, line: { color: '#00ff88', width: 1.4, dash: 'dot' } },
+    ],
+    annotations: [
+      { x: 2.35, y: Math.log10(19), text: '15 µg/L EPA Drinking Water Action', showarrow: false, xanchor: 'right', font: { color: '#fca5a5', size: 9.5 } },
+      { x: 2.35, y: Math.log10(6.8), text: '5.5 µg/L Aquatic Chronic (hard water)', showarrow: false, xanchor: 'right', font: { color: '#d8b4fe', size: 9.5 } },
+      { x: 2.35, y: Math.log10(0.20), text: '0.15 µg/L Skunk R. WQP median', showarrow: false, xanchor: 'right', font: { color: '#6ee7b7', size: 9.5 } },
+    ],
+    legend: { orientation: 'h', y: -0.26, font: { size: 10 } },
+  }, { responsive: true, displayModeBar: false });
 }
 
 function setViewMode(mode, persist = true) {
@@ -718,7 +926,8 @@ function setViewMode(mode, persist = true) {
       renderStationChart();
       renderSensitivityChart();
       render24hArchiveCharts();
-      for (const id of ['chart-xact', 'chart-sensitivity', 'chart-24h-assim', 'chart-24h-wx', 'chart-24h-xact', 'chart-24h-aq']) {
+      renderGroundWaterCharts();
+      for (const id of ['chart-xact', 'chart-sensitivity', 'chart-24h-assim', 'chart-24h-wx', 'chart-24h-xact', 'chart-24h-aq', 'chart-gw-surface', 'chart-gw-precip', 'chart-gw-runoff']) {
         const el = document.getElementById(id);
         if (el && el.data) Plotly.Plots.resize(el);
       }
@@ -781,6 +990,7 @@ async function boot() {
 
   renderHeroKPIs();
   renderLiveTables();
+  renderGroundWaterSection();
   buildEpaLiveHud();
   renderStationChart();
   renderSensitivityChart();
@@ -870,9 +1080,10 @@ async function boot() {
   for (const [id, layer] of [
     ['chk-particles', 'particles'],
     ['chk-sightlines', 'sightlines'], ['chk-sensors', 'sensors'],
-    ['chk-winds', 'winds'], ['chk-lids', 'lids'], ['chk-labels', 'labels'],
+    ['chk-winds', 'winds'], ['chk-hydro', 'hydro'], ['chk-lids', 'lids'], ['chk-labels', 'labels'],
   ]) {
-    document.getElementById(id).onchange = (e) => obs.setLayerVisible(layer, e.target.checked);
+    const chk = document.getElementById(id);
+    if (chk) chk.onchange = (e) => obs.setLayerVisible(layer, e.target.checked);
   }
   document.querySelectorAll('[data-preset]').forEach((btn) => {
     btn.onclick = () => {
@@ -904,6 +1115,28 @@ async function boot() {
     renderStationChart();
     renderSensitivityChart();
   };
+
+  // Wire Ground & Water interactive sliders (Expert mode)
+  const gwAirSlider = document.getElementById('slider-gw-air');
+  if (gwAirSlider) {
+    gwAirSlider.oninput = (e) => {
+      state.gwAirPct = Number((10 ** Number(e.target.value)).toPrecision(2));
+      const kg = (TOTAL_PB_KG * state.gwAirPct / 100).toFixed(2);
+      const lbl = document.getElementById('lbl-gw-air');
+      if (lbl) lbl.textContent = `${state.gwAirPct}% (${kg} kg Pb)`;
+      renderGroundWaterCharts();
+    };
+  }
+  const gwRunSlider = document.getElementById('slider-gw-runoff');
+  if (gwRunSlider) {
+    gwRunSlider.oninput = (e) => {
+      state.gwRunoffPct = Number((10 ** Number(e.target.value)).toPrecision(2));
+      const kg = (3049.0 * state.gwRunoffPct / 100).toFixed(2);
+      const lbl = document.getElementById('lbl-gw-runoff');
+      if (lbl) lbl.textContent = `${state.gwRunoffPct}% (${kg} kg mobilized)`;
+      renderGroundWaterCharts();
+    };
+  }
 
   // Wire Live Refresh & Lightbox
   document.getElementById('btn-live-refresh').onclick = liveBrowserRefresh;

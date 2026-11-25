@@ -533,6 +533,55 @@ def make_fig6_and_upgrade_html():
         folium.PolyLine([[w['lat'], w['lon']], [w['lat']+dlat, w['lon']+dlon]], color='#ffdd44', weight=3).add_to(fg_wx)
     fg_wx.add_to(m)
 
+    # Real USGS NHD Waterways, Long Creek HUC12 Subwatershed & Live USGS Stream Gauges!
+    try:
+        hydro = json.load(open('/home/mike10010100/git/iaaap-plume-analysis/data/watershed_hydrology.json'))
+        live_tel = json.load(open('/home/mike10010100/git/iaaap-plume-analysis/site_data/live_telemetry.json'))
+        fg_hydro = folium.FeatureGroup(name='Watersheds (HUC12 Long Creek) & USGS Gauges', show=True)
+        huc = hydro.get('blast_huc12') or {}
+        for ring in huc.get('rings', []):
+            folium.Polygon(
+                ring, color='#38bdf8', weight=2.2, dash_array='5,4',
+                fill=True, fill_color='#0ea5e9', fill_opacity=0.10,
+                tooltip=f"Blast Pad Subwatershed: HUC12 {huc.get('huc12')} ({huc.get('name')}, {huc.get('areasqkm')} km²)"
+            ).add_to(fg_hydro)
+        wstyles = {
+            'Long Creek': ('#22d3ee', 2.8, 0.92),
+            'Brush Creek': ('#38bdf8', 2.4, 0.85),
+            'Spring Creek': ('#60a5fa', 1.8, 0.70),
+            'Skunk River': ('#0ea5e9', 3.0, 0.88),
+            'Des Moines River': ('#3b82f6', 2.4, 0.72),
+            'Fox River': ('#60a5fa', 1.8, 0.65),
+            'Mississippi River': ('#2563eb', 3.0, 0.78),
+        }
+        for wname, paths in (hydro.get('waterways') or {}).items():
+            if wname not in wstyles:
+                continue
+            col, wt, op = wstyles[wname]
+            for poly in paths:
+                if len(poly) >= 2:
+                    folium.PolyLine(poly, color=col, weight=wt, opacity=op, tooltip=f'USGS NHD: {wname}').add_to(fg_hydro)
+        for g in live_tel.get('usgs_gauges') or []:
+            is_direct = g.get('site_id') == '05474000'
+            flow_s = f"{g['discharge_cfs']:,.0f} cfs ({g['discharge_m3s']} m³/s)" if g.get('discharge_cfs') is not None else 'Stage/WQ sensor'
+            extra = '<br><i>WQP Lead Baseline (40 obs): med 0.15, max 0.36 µg/L</i>' if is_direct else ''
+            folium.CircleMarker(
+                [g['lat'], g['lon']],
+                radius=7.5 if is_direct else 5.5,
+                color='#ffffff', weight=2, fill=True,
+                fill_color='#06b6d4' if is_direct else '#0284c7', fill_opacity=0.95,
+                popup=(f"<b>USGS {g['site_id']} — {g['name']}</b><br>"
+                       f"<b>Role:</b> {g['role']}<br>"
+                       f"<b>Live Flow:</b> {flow_s}"
+                       + (f" · Stage: {g['gage_height_ft']} ft" if g.get('gage_height_ft') is not None else "")
+                       + (f"<br><b>Temp/Turbidity:</b> {g.get('water_temp_c','—')}°C / {g.get('turbidity_fnu','—')} FNU" if (g.get('water_temp_c') is not None or g.get('turbidity_fnu') is not None) else "")
+                       + extra),
+                tooltip=f"USGS {g['name']}: {flow_s}",
+            ).add_to(fg_hydro)
+        fg_hydro.add_to(m)
+    except Exception as ex:
+        print('Watershed layer skipped:', ex)
+
     folium.LayerControl(collapsed=True).add_to(m)
     legend_html = """
     <div style="position: fixed; bottom: 25px; left: 25px; z-index: 9999; background: rgba(14,17,23,0.92);

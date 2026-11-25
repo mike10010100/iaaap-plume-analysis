@@ -27,6 +27,8 @@ export class Plume3DObservatory {
     this.assimShiftInfo = null;
     this.sensorGroup = new THREE.Group();
     this.windGroup = new THREE.Group();
+    this.hydroGroup = new THREE.Group();
+    this.usgsGroup = new THREE.Group();
     this.sightlineGroup = new THREE.Group();
     this.lidGroup = new THREE.Group();
     this.labelGroup = new THREE.Group();
@@ -65,7 +67,7 @@ export class Plume3DObservatory {
     this.pointer = new THREE.Vector2();
     this.clock = new THREE.Clock();
 
-    this.scene.add(this.sensorGroup, this.windGroup, this.sightlineGroup, this.lidGroup, this.labelGroup);
+    this.scene.add(this.sensorGroup, this.windGroup, this.hydroGroup, this.usgsGroup, this.sightlineGroup, this.lidGroup, this.labelGroup);
   }
 
   _initLighting() {
@@ -732,6 +734,42 @@ export class Plume3DObservatory {
       sp.scale.multiplyScalar(0.82);
       this.labelGroup.add(sp);
     }
+
+    // 6. Real USGS NHD Waterways & Long Creek HUC12 Subwatershed directly under blast pad!
+    this._rebuildHydroOverlays();
+  }
+
+  _rebuildHydroOverlays() {
+    while (this.hydroGroup.children.length) this.hydroGroup.remove(this.hydroGroup.children[0]);
+    const s = this.staticData;
+    if (!s || !s.hydrology) return;
+    const huc = s.hydrology.blast_huc12;
+    if (huc && huc.rings_km) {
+      const hucMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.72 });
+      for (const ring of huc.rings_km) {
+        const pts = ring.map(([x, y]) => new THREE.Vector3(x, this.terrainY(x, -y) + 0.14, -y));
+        this.hydroGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), hucMat));
+      }
+    }
+    const streamStyles = {
+      'Long Creek':        { color: 0x22d3ee, opacity: 0.95 },
+      'Brush Creek':       { color: 0x38bdf8, opacity: 0.88 },
+      'Spring Creek':      { color: 0x60a5fa, opacity: 0.72 },
+      'Skunk River':       { color: 0x0ea5e9, opacity: 0.92 },
+      'Des Moines River':  { color: 0x3b82f6, opacity: 0.78 },
+      'Fox River':         { color: 0x60a5fa, opacity: 0.65 },
+      'Mississippi River': { color: 0x2563eb, opacity: 0.85 },
+    };
+    for (const [wname, paths] of Object.entries(s.hydrology.waterways_km || {})) {
+      const st = streamStyles[wname];
+      if (!st) continue;
+      const mat = new THREE.LineBasicMaterial({ color: st.color, transparent: true, opacity: st.opacity });
+      for (const poly of paths) {
+        if (poly.length < 2) continue;
+        const pts = poly.map(([x, y]) => new THREE.Vector3(x, this.terrainY(x, -y) + 0.11, -y));
+        this.hydroGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+      }
+    }
   }
 
   _buildParticles() {
@@ -818,9 +856,10 @@ export class Plume3DObservatory {
 
   updateLiveTelemetry(liveData) {
     this.liveData = liveData;
-    // Clear existing dynamic sensors & wind arrows
+    // Clear existing dynamic sensors, wind arrows & USGS gauges
     while (this.sensorGroup.children.length) this.sensorGroup.remove(this.sensorGroup.children[0]);
     while (this.windGroup.children.length) this.windGroup.remove(this.windGroup.children[0]);
+    while (this.usgsGroup.children.length) this.usgsGroup.remove(this.usgsGroup.children[0]);
     // Keep only static pickables
     this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower'].includes(m.userData.type));
     this.xactVisuals = {};
@@ -967,6 +1006,45 @@ export class Plume3DObservatory {
     }
     for (const [k, rw] of Object.entries(liveData.rwis || {})) {
       addWindArrow(k, 'IA RWIS', rw.lat, rw.lon, 0x38bdf8, rw.series_24h, rw, `Iowa DOT RWIS ${k} (${rw.name})`);
+    }
+
+    // 3. Plot Live USGS NWIS Stream Gauges (receiving rivers & watershed dilution anchors!)
+    for (const g of (liveData.usgs_gauges || [])) {
+      const { x, z } = this.ll2xz(g.lat, g.lon);
+      if (x < wx_min_km || x > wx_max_km || -z < wy_min_km || -z > wy_max_km) continue;
+      const baseY = this.terrainY(x, z);
+      const isDirect = g.site_id === '05474000';
+      const beacon = new THREE.Mesh(
+        new THREE.OctahedronGeometry(isDirect ? 0.36 : 0.26, 0),
+        new THREE.MeshStandardMaterial({
+          color: isDirect ? 0x22d3ee : 0x38bdf8,
+          emissive: isDirect ? 0x06b6d4 : 0x0284c7,
+          emissiveIntensity: 0.72,
+        })
+      );
+      beacon.position.set(x, baseY + 0.55, z);
+      const flowStr = g.discharge_cfs != null ? `${g.discharge_cfs.toLocaleString()} cfs (${g.discharge_m3s} m³/s)` : 'Stage/WQ sensor';
+      beacon.userData = {
+        type: 'usgs',
+        title: `USGS Gauge ${g.site_id} — ${g.name}`,
+        body: `<div style="margin-bottom:5px"><span class="tag-live">● Live USGS Stream Gauge</span></div>` +
+              `<b>Watershed Role:</b> ${g.role}<br>` +
+              `<b>Live Flow:</b> <strong style="color:#22d3ee">${flowStr}</strong>` +
+              (g.gage_height_ft != null ? ` · Stage: ${g.gage_height_ft} ft` : '') + '<br>' +
+              (g.water_temp_c != null ? `<b>Water Temp:</b> ${g.water_temp_c}°C` : '') +
+              (g.turbidity_fnu != null ? ` · <b>Turbidity:</b> ${g.turbidity_fnu} FNU<br>` : (g.water_temp_c != null ? '<br>' : '')) +
+              `<b>Distance from Blast:</b> ${g.dist_km} km @ ${g.bearing_deg}°` +
+              (isDirect ? `<br><span style="color:#86efac">Historical WQP Lead Baseline (40 samples): median 0.15 µg/L, max 0.36 µg/L</span>` : ''),
+      };
+      this.usgsGroup.add(beacon);
+      this.pickables.push(beacon);
+      if (isDirect || g.site_id === '05490500' || g.site_id === '05474500') {
+        const shortFlow = g.discharge_cfs != null ? ` (${Math.round(g.discharge_cfs).toLocaleString()} cfs)` : (g.turbidity_fnu != null ? ` (${g.turbidity_fnu} FNU)` : '');
+        const lbl = this._makeSpriteLabel(`USGS ${g.name.split(' at ')[0]}${shortFlow}`, '#67e8f9', 'rgba(4,20,30,0.88)', 19);
+        lbl.position.set(x, baseY + 1.55, z);
+        lbl.scale.multiplyScalar(0.84);
+        this.usgsGroup.add(lbl);
+      }
     }
 
     this._updateXactVisualsAtTime(this.simSec);
@@ -1134,6 +1212,7 @@ export class Plume3DObservatory {
       this.invMesh.position.y = yInv;
       this.invLbl.position.y = yInv + 0.6;
     }
+    this._rebuildHydroOverlays();
     if (this.liveData) this.updateLiveTelemetry(this.liveData);
     this.updateParticlesAtTime(this.simSec);
   }
@@ -1228,6 +1307,7 @@ export class Plume3DObservatory {
     if (name === 'sightlines') this.sightlineGroup.visible = vis;
     if (name === 'sensors') this.sensorGroup.visible = vis;
     if (name === 'winds') this.windGroup.visible = vis;
+    if (name === 'hydro') { this.hydroGroup.visible = vis; this.usgsGroup.visible = vis; }
     if (name === 'lids') this.lidGroup.visible = vis;
     if (name === 'labels') this.labelGroup.visible = vis;
   }

@@ -345,10 +345,31 @@ def build_scene_static():
     met = json.load(open(f'{REPO}/data/met_summary.json'))
     towns = json.load(open(f'{REPO}/data/town_impacts.json'))
     si = json.load(open(f'{REPO}/data/sensitivity_and_inverse.json'))
+    gw = json.load(open(f'{REPO}/data/ground_water_analysis.json'))
+    hydro_raw = json.load(open(f'{REPO}/data/watershed_hydrology.json'))
     iaaap_raw = json.load(open(f'{REPO}/data/iaaap_osm.json'))[0]['geojson']
 
     def ll2km(lat, lon):
         return round((lon - LON0)*M_PER_LON/1000.0, 3), round((lat - LAT0)*M_PER_LAT/1000.0, 3)
+
+    # Convert USGS NHD waterways + Long Creek HUC12 boundary into compact 3D km coordinates inside world box
+    def clip_paths_km(paths_ll):
+        out = []
+        for poly in paths_ll:
+            pts = [ll2km(pt[0], pt[1]) for pt in poly]
+            if any(WX_MIN <= x <= WX_MAX and WY_MIN <= y <= WY_MAX for x, y in pts):
+                out.append(pts)
+        return out
+
+    hydro_km = {
+        'blast_huc12': {
+            'huc12': hydro_raw['blast_huc12'].get('huc12'),
+            'name': hydro_raw['blast_huc12'].get('name'),
+            'areasqkm': hydro_raw['blast_huc12'].get('areasqkm'),
+            'rings_km': clip_paths_km(hydro_raw['blast_huc12'].get('rings', [])),
+        },
+        'waterways_km': {nm: clip_paths_km(ps) for nm, ps in hydro_raw.get('waterways', {}).items()},
+    }
 
     # Simplify IAAAP polygon outer ring to km
     rings = []
@@ -387,6 +408,8 @@ def build_scene_static():
         'inversion_cap_m': 1075.0,
         'receptors_model': {k: {fk: fv for fk, fv in v.items() if fk != 'obs_series'} for k, v in si['receptors'].items()},
         'sensitivity_sweep': si['sweep'],
+        'ground_water': gw,
+        'hydrology': hydro_km,
     }
     json.dump(static, open(f'{REPO}/site_data/scene_static.json', 'w'), separators=(',', ':'))
     print('Saved site_data/scene_static.json')
