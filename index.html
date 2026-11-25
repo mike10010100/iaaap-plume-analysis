@@ -162,6 +162,7 @@
           <button class="hud-btn expert-preset" data-preset="wilson" title="Snap to @nmjameswilson Cam 3 aerial drone (101 m AGL on 80th St, edge of 4 NM TFR) looking due East at T+5s ballistic collapse">Cam 3 (Drone View)</button>
           <button class="hud-btn expert-preset" data-preset="shear" title="Side cross-section showing vertical wind shear masts and 1,075m inversion cap">Shear Cross-Section</button>
           <button class="hud-btn" data-preset="watershed" title="Frame IAAAP on-site containment halo, Long Creek → Skunk River → Mississippi flow direction, and Burlington upstream water intake">Watershed View</button>
+          <button id="btn-runoff-sim" class="hud-btn runoff-btn" title="Toggle hypothetical storm rain wash-off &amp; river dilution simulator (Not observed — weather currently dry)">🌧 Storm Wash-Off (What-If)</button>
           <button class="hud-btn" data-preset="top">Top-Down Map</button>
           <button id="btn-fs" class="hud-btn">⛶ Fullscreen</button>
           <button id="btn-3d-adv-toggle" class="hud-btn simple-only" title="Open advanced 3D layer, wind-assimilation, and map optics panel">⚙ Expert 3D Controls</button>
@@ -250,6 +251,7 @@
               </select>
             </div>
             <div class="ctrl-row"><label><input id="chk-lids" type="checkbox" checked /> PBL &amp; 1,075 m Inversion Cap</label></div>
+            <div class="ctrl-row"><label><input id="chk-runoff-sim" type="checkbox" /> What-If Storm Wash-Off Fate</label></div>
           </div>
           <div class="ctrl-group">
             <div class="ctrl-subhdr live">● Live Observed / Time-Synced</div>
@@ -289,6 +291,24 @@
           <div class="wipe-scale-contours">
             <span><i style="background:#00f5ff"></i> 5.0 µg/ft² EPA floor action (near/on-site)</span>
             <span><i style="background:#facc15"></i> 0.5 µg/ft² (~5 mi SW)</span>
+          </div>
+        </div>
+
+        <!-- Hypothetical Storm-Wash Runoff Banner (shown only when What-If Storm Wash-Off simulator is active) -->
+        <div id="hud-runoff-banner" class="hud-runoff-banner">
+          <div class="runoff-ban-top">
+            <span class="runoff-ban-title">⚠ HYPOTHETICAL STORM-WASH SCENARIO <small>(Dry today · Not an active spill)</small></span>
+            <div class="runoff-pct-pills">
+              <button class="runoff-pill" data-runoff-pct="0.01">0.01%</button>
+              <button class="runoff-pill active" data-runoff-pct="0.1">0.10%</button>
+              <button class="runoff-pill" data-runoff-pct="1.0">1.0%</button>
+            </div>
+          </div>
+          <div id="hud-runoff-stats" class="runoff-ban-stats">Long Creek (~50 cfs): 101 µg/L → Skunk (65×): 1.5 µg/L → Mississippi (1,000×): 0.10 µg/L</div>
+          <div class="runoff-ban-leg">
+            <span><i style="background:#fbbf24"></i> ~90% Silt-Bound (settles in Long Creek)</span>
+            <span><i style="background:#c084fc"></i> ~10% Dissolved</span>
+            <span><i style="background:#60a5fa"></i> Clean Upstream (Burlington isolated)</span>
           </div>
         </div>
 
@@ -675,6 +695,47 @@
         <div class="gw-card info">
           <h4>💧 Creeks, Rivers &amp; Upcoming Rain Watch</h4>
           <p id="gw-card-water">Loading live USGS Skunk River discharge and 7-day rain runoff window...</p>
+        </div>
+      </div>
+
+      <!-- Interactive Ground-to-Water Lead Fate Visual Cross-Section (Visible in BOTH Simple & Expert Modes!) -->
+      <div class="gw-fate-box">
+        <div class="gw-fate-hdr">
+          <div>
+            <h3>🧭 Visual Guide: How Lead Moves (and Stops) in Soil vs. Water</h3>
+            <p class="gw-fate-sub">
+              In soil, lead locks tightly to Iowa clay/organic matter in the top <strong>0–2 cm</strong> (blocking groundwater). Only heavy rain on an <strong>uncapped pad</strong> can erode silt-bound lead horizontally into Long Creek—where ~90% settles to creek mud and live USGS river flow dilutes the rest by <strong>65× → 1,000×</strong>.
+            </p>
+          </div>
+          <div class="gw-fate-actions">
+            <div class="runoff-pct-pills" title="Switch hypothetical 6-hour uncapped pad rain wash-off scenario">
+              <span style="font-size:0.7rem;color:var(--muted);margin-right:2px;">Storm Wash-Off:</span>
+              <button class="runoff-pill" data-runoff-pct="0.01">0.01% Light</button>
+              <button class="runoff-pill active" data-runoff-pct="0.1">0.10% Mod.</button>
+              <button class="runoff-pill" data-runoff-pct="1.0">1.0% Severe</button>
+            </div>
+            <button id="btn-jump-3d-runoff" class="hud-btn runoff-btn" title="Jump up to the 3D Watershed View with the hypothetical rain wash-off simulation enabled">🌊 Animate in 3D Map ↑</button>
+          </div>
+        </div>
+
+        <div class="gw-fate-grid">
+          <!-- Left Visual: Vertical Subsurface Soil & Groundwater Retention -->
+          <div class="gw-fate-panel">
+            <div class="fate-panel-hdr">
+              <span>1. Ground &amp; Soil (Vertical Retention)</span>
+              <span class="badge badge-green">Groundwater Protected</span>
+            </div>
+            <svg id="fate-soil-svg" class="fate-svg" viewBox="0 0 540 275" role="img" aria-label="Vertical soil cross-section showing lead locked in top 0-2 cm clay layer above clean deep aquifer"></svg>
+          </div>
+
+          <!-- Right Visual: Longitudinal River Transport, Sediment Settling & Live USGS Dilution -->
+          <div class="gw-fate-panel">
+            <div class="fate-panel-hdr">
+              <span>2. Water Transport &amp; Live USGS Dilution (What-If Rain)</span>
+              <span id="fate-water-badge" class="badge badge-amber">0.10% Hypothetical Storm</span>
+            </div>
+            <svg id="fate-water-svg" class="fate-svg" viewBox="0 0 540 275" role="img" aria-label="Longitudinal river profile from IAAAP blast pad through Long Creek, Skunk River, and Mississippi River showing sediment settling and 65x to 1000x dilution"></svg>
+          </div>
         </div>
       </div>
 

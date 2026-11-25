@@ -25,8 +25,14 @@ export class Plume3DObservatory {
     this.windVisuals = [];
     this.shearMasts = [];
     this.flowPulses = [];
+    this.runoffParticles = [];
+    this.runoffTrack = null;
+    this.runoffSimActive = false;
+    this.runoffPct = 0.10;
     this._tmpVec = new THREE.Vector3();
     this._tmpDir = new THREE.Vector3();
+    this._tmpCol = new THREE.Color();
+    this._colDilute = new THREE.Color(0x38bdf8);
     this._upVec = new THREE.Vector3(0, 1, 0);
     this.latestXactObsSec = 6600.0;
     this.windObsCutoffSec = 6600.0;
@@ -34,6 +40,8 @@ export class Plume3DObservatory {
     this.sensorGroup = new THREE.Group();
     this.windGroup = new THREE.Group();
     this.hydroGroup = new THREE.Group();
+    this.runoffGroup = new THREE.Group();
+    this.runoffGroup.visible = false;
     this.usgsGroup = new THREE.Group();
     this.sightlineGroup = new THREE.Group();
     this.lidGroup = new THREE.Group();
@@ -73,7 +81,7 @@ export class Plume3DObservatory {
     this.pointer = new THREE.Vector2();
     this.clock = new THREE.Clock();
 
-    this.scene.add(this.sensorGroup, this.windGroup, this.hydroGroup, this.usgsGroup, this.sightlineGroup, this.lidGroup, this.labelGroup);
+    this.scene.add(this.sensorGroup, this.windGroup, this.hydroGroup, this.runoffGroup, this.usgsGroup, this.sightlineGroup, this.lidGroup, this.labelGroup);
   }
 
   _initLighting() {
@@ -852,6 +860,7 @@ export class Plume3DObservatory {
       return chains;
     };
 
+    const stitchedByName = {};
     for (const [wname, paths] of Object.entries(s.hydrology.waterways_km || {})) {
       const st = streamStyles[wname];
       if (!st) continue;
@@ -867,7 +876,9 @@ export class Plume3DObservatory {
       const coneGeo = st.isMajor ? majorConeGeo : creekConeGeo;
       const spacingKm = st.isMajor ? 5.8 : 4.0;
       const speedKmS = st.isMajor ? 1.55 : 1.10;
-      for (const chain of stitchNhdChains(paths)) {
+      const chains = stitchNhdChains(paths);
+      stitchedByName[wname] = chains;
+      for (const chain of chains) {
         // Clip vertices to terrain DEM bounds so cones never float past the map edge
         const clipped = chain.filter(([x, y]) => x >= wx_min_km && x <= wx_max_km && y >= wy_min_km && y <= wy_max_km);
         if (clipped.length < 2) continue;
@@ -888,6 +899,9 @@ export class Plume3DObservatory {
         }
       }
     }
+
+    // Build opt-in What-If Storm-Wash Runoff Fate Layer along exact IAAAP -> Long Creek -> Skunk -> Mississippi corridor!
+    this._rebuildRunoffOverlay(stitchedByName);
 
     // 3 Clickable Municipal Drinking-Water Intake Beacons (visually showing upstream vs RO vs mainstem dilution!)
     const intakes = [
@@ -932,6 +946,197 @@ export class Plume3DObservatory {
       lbl.position.set(x, baseY + (w.lblDy || 1.05), z);
       this.hydroGroup.add(lbl);
     }
+  }
+
+  _rebuildRunoffOverlay(stitchedByName) {
+    while (this.runoffGroup.children.length) this.runoffGroup.remove(this.runoffGroup.children[0]);
+    this.allLabels = this.allLabels.filter((sp) => sp.userData.groupTag !== 'runoff');
+    this.pickables = this.pickables.filter((m) => m.userData.type !== 'runoff_zone');
+    this.runoffParticles = [];
+    this.runoffTrack = null;
+
+    const lcList = stitchedByName['Long Creek'] || [];
+    const skList = stitchedByName['Skunk River'] || [];
+    const msList = stitchedByName['Mississippi River'] || [];
+    const lc = lcList.find((c) => c.some((p) => Math.hypot(p[0], p[1]) < 3.0));
+    const sk = [...skList].sort((a, b) => b.length - a.length)[0];
+    const ms = [...msList].sort((a, b) => b.length - a.length)[0];
+    if (!lc || !sk || !ms) return;
+
+    const closestIdx = (arr, tx, ty) => {
+      let best = 0, dMin = 1e9;
+      for (let i = 0; i < arr.length; i++) {
+        const d = Math.hypot(arr[i][0] - tx, arr[i][1] - ty);
+        if (d < dMin) { dMin = d; best = i; }
+      }
+      return best;
+    };
+
+    const lcRun = lc.slice(closestIdx(lc, 0, 0));
+    const lcEnd = lcRun[lcRun.length - 1];
+    const skRun = sk.slice(closestIdx(sk, lcEnd[0], lcEnd[1]));
+    const skEnd = skRun[skRun.length - 1];
+    const msRunAll = ms.slice(closestIdx(ms, skEnd[0], skEnd[1]));
+    // Trim Mississippi corridor cleanly just south of Keokuk (y >= -52 km)
+    const msRun = msRunAll.filter(([, y]) => y >= -52.0);
+
+    // Combine exact overland pad swale -> Long Creek -> Lower Skunk -> Downstream Mississippi
+    const rawPts = [[0.0, 0.0], ...lcRun, ...skRun.slice(1), ...msRun];
+    const idxLcEnd = 1 + lcRun.length - 1;
+    const idxSkEnd = idxLcEnd + Math.max(0, skRun.length - 1);
+    const pts3d = rawPts.map(([x, yN]) => new THREE.Vector3(x, this.terrainY(x, -yN) + 0.24, -yN));
+    const cumLen = new Float32Array(pts3d.length);
+    let acc = 0;
+    for (let i = 1; i < pts3d.length; i++) {
+      acc += Math.hypot(pts3d[i].x - pts3d[i - 1].x, pts3d[i].z - pts3d[i - 1].z);
+      cumLen[i] = acc;
+    }
+    const dLongCreekEnd = cumLen[idxLcEnd];
+    const dSkunkEnd = cumLen[idxSkEnd];
+    this.runoffTrack = { pts3d, cumLen, totalLen: acc, dLongCreekEnd, dSkunkEnd };
+
+    // 1. Glowing Amber Streambed Sediment-Settling Ribbon along Long Creek (where ~90% of silt-bound Pb deposits!)
+    const lcCurvePts = pts3d.slice(0, idxLcEnd + 1);
+    if (lcCurvePts.length >= 2) {
+      const lcTube = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(lcCurvePts), 48, 0.16, 6, false),
+        new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.48, depthWrite: false })
+      );
+      this.runoffGroup.add(lcTube);
+    }
+    // 2. Cooler Diluted Corridor Ribbon along Lower Skunk River (65x live USGS dilution zone)
+    const skCurvePts = pts3d.slice(idxLcEnd, idxSkEnd + 1);
+    if (skCurvePts.length >= 2) {
+      const skTube = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(skCurvePts), 40, 0.13, 6, false),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.28, depthWrite: false })
+      );
+      this.runoffGroup.add(skTube);
+    }
+
+    // 3. Clickable Runoff Fate Milestone Rings (live-computed from USGS Skunk River flow & selected wash-off %)
+    const calcRunoffStats = () => {
+      const skunkM3s = (this.liveData?.usgs_gauges || []).find((g) => g.site_id === '05474000')?.discharge_m3s || 92.3;
+      const skunkCfs = Math.round(skunkM3s / 0.0283168);
+      const mobKg = 3049.0 * (this.runoffPct / 100.0);
+      const pulseSec = 6 * 3600;
+      return {
+        mobKg,
+        skunkCfs,
+        dilSkunk: Math.round(skunkM3s / 1.4),
+        lcTot: (mobKg * 1e6) / (1.4 * pulseSec),
+        skTot: (mobKg * 1e6) / (skunkM3s * pulseSec),
+        msTot: (mobKg * 1e6) / (1400.0 * pulseSec),
+      };
+    };
+
+    const addMilestone = (distKm, colorHex, labelTxt, fg, bg, title, bodyFn) => {
+      const pos = new THREE.Vector3();
+      this._sampleTrackAtDist(pts3d, cumLen, distKm, pos, null);
+      const ringGeo = new THREE.RingGeometry(0.32, 0.56, 24);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(
+        ringGeo,
+        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false })
+      );
+      ring.position.set(pos.x, pos.y + 0.04, pos.z);
+      ring.userData = {
+        type: 'runoff_zone',
+        title,
+        getBody: () => bodyFn(calcRunoffStats()),
+      };
+      this.runoffGroup.add(ring);
+      this.pickables.push(ring);
+
+      const lbl = this._makeSpriteLabel(labelTxt, fg, bg, 18, { sizeMul: 0.78, groupTag: 'runoff' });
+      lbl.position.set(pos.x, pos.y + 0.95, pos.z);
+      this.runoffGroup.add(lbl);
+    };
+
+    addMilestone(
+      dLongCreekEnd * 0.58, 0xf59e0b, 'What-If: Long Creek Settling (~90% Silt)', '#fcd34d', 'rgba(42,22,4,0.92)',
+      'Hypothetical Stage 1: Long Creek Sediment Settling Zone',
+      (st) => `<div style="margin-bottom:5px"><span class="tag-proj">⚠ Hypothetical Storm-Wash (${this.runoffPct}% = ${st.mobKg.toFixed(2)} kg / 6h)</span></div>` +
+              `<b>Current Weather:</b> Dry (0 mm rain) — <b>NOT an active spill</b>.<br>` +
+              `<b>If Uncapped Rain Hits:</b> ~90% of washed lead binds tightly to clay/silt (<code>Kd ~500–2,000 L/kg</code>) and settles onto Long Creek's streambed inside the first 6–8 km.<br>` +
+              `<b>Modeled Storm Pulse (~50 cfs):</b> <strong style="color:#fbbf24">${st.lcTot.toFixed(1)} µg/L total</strong> (~${(st.lcTot * 0.1).toFixed(1)} µg/L dissolved).`
+    );
+    addMilestone(
+      dLongCreekEnd + (dSkunkEnd - dLongCreekEnd) * 0.52, 0x22d3ee, 'What-If: Skunk River (~65× Dilution)', '#67e8f9', 'rgba(4,24,34,0.92)',
+      'Hypothetical Stage 2: Skunk River Instant Dilution Zone',
+      (st) => `<div style="margin-bottom:5px"><span class="tag-proj">⚠ Hypothetical Storm-Wash (${this.runoffPct}% = ${st.mobKg.toFixed(2)} kg / 6h)</span></div>` +
+              `<b>Live USGS Skunk Flow:</b> <strong style="color:#22d3ee">${st.skunkCfs.toLocaleString()} cfs</strong> (~<b>${st.dilSkunk}×</b> dilution vs. Long Creek stormflow).<br>` +
+              `<b>Modeled Storm Pulse:</b> <strong style="color:#67e8f9">${st.skTot.toFixed(2)} µg/L total</strong> (~${(st.skTot * 0.1).toFixed(2)} µg/L dissolved) vs. <b>15 µg/L</b> EPA drinking water action level.`
+    );
+    addMilestone(
+      Math.min(acc - 4, dSkunkEnd + 16.0), 0x60a5fa, 'What-If: Mississippi (~1,000× Dilution)', '#93c5fd', 'rgba(8,18,36,0.90)',
+      'Hypothetical Stage 3: Mississippi Mainstem Dilution',
+      (st) => `<div style="margin-bottom:5px"><span class="tag-proj">⚠ Hypothetical Storm-Wash (${this.runoffPct}% = ${st.mobKg.toFixed(2)} kg / 6h)</span></div>` +
+              `<b>Mississippi Mainstem (~50,000 cfs):</b> ~<b>1,000×</b> dilution vs. Long Creek.<br>` +
+              `<b>Modeled Pulse:</b> <strong style="color:#93c5fd">${st.msTot.toFixed(3)} µg/L total</strong> (~${(st.msTot * 0.1).toFixed(4)} µg/L dissolved) — indistinguishable from river background.<br>` +
+              `<b>Drinking Water:</b> Burlington sits <b>12 km UPSTREAM</b> (clean blue); Fort Madison uses <b>Alluvial Wells + RO</b>.`
+    );
+
+    // 4. Animated Wash-Off Transport Packets (56 Amber Silt-Bound ~90% + 16 Violet Dissolved ~10%)
+    const pktGeo = new THREE.SphereGeometry(0.24, 10, 10);
+    const totalPkts = 72;
+    for (let i = 0; i < totalPkts; i++) {
+      const isDissolved = i >= 56;
+      // Deterministic pseudo-random jitter so every rebuild is stable
+      const r1 = ((i * 73 + 17) % 97) / 97;
+      const r2 = ((i * 41 + 29) % 89) / 89;
+      // ~46% of heavy silt packets settle & stop inside Long Creek (visually proving creek-bed sediment trapping!)
+      const settlesInCreek = !isDissolved && i < 26;
+      const maxDist = settlesInCreek
+        ? dLongCreekEnd * (0.22 + 0.78 * r1)
+        : (isDissolved ? acc : Math.min(acc, dSkunkEnd + 24.0 * r1));
+      const mat = new THREE.MeshBasicMaterial({
+        color: isDissolved ? 0xc084fc : 0xfbbf24,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(pktGeo, mat);
+      this.runoffGroup.add(mesh);
+      this.runoffParticles.push({
+        mesh,
+        mat,
+        isDissolved,
+        settlesInCreek,
+        phase: (i * 0.137 + r2 * 0.5) % 1.0,
+        maxDist,
+        speedKmS: isDissolved ? 3.2 : (settlesInCreek ? 1.45 : 2.15),
+        lateralOffset: (r2 - 0.5) * 0.32,
+      });
+    }
+    this.runoffGroup.visible = this.runoffSimActive;
+  }
+
+  _sampleTrackAtDist(pts3d, cumLen, dist, outPos, outDir) {
+    const clamped = THREE.MathUtils.clamp(dist, 0, cumLen[cumLen.length - 1]);
+    let lo = 0, hi = cumLen.length - 2;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (cumLen[mid] <= clamped) lo = mid; else hi = mid - 1;
+    }
+    const segLen = cumLen[lo + 1] - cumLen[lo];
+    const f = segLen > 1e-6 ? (clamped - cumLen[lo]) / segLen : 0;
+    const p0 = pts3d[lo], p1 = pts3d[lo + 1];
+    outPos.set(
+      p0.x + (p1.x - p0.x) * f,
+      p0.y + (p1.y - p0.y) * f,
+      p0.z + (p1.z - p0.z) * f
+    );
+    if (outDir) {
+      outDir.subVectors(p1, p0);
+      if (outDir.lengthSq() > 1e-8) outDir.normalize();
+    }
+  }
+
+  setRunoffSim(enabled, pct = null) {
+    this.runoffSimActive = !!enabled;
+    if (pct != null && Number.isFinite(Number(pct))) this.runoffPct = Number(pct);
+    this.runoffGroup.visible = this.runoffSimActive;
   }
 
   _buildParticles() {
@@ -1023,7 +1228,7 @@ export class Plume3DObservatory {
     while (this.windGroup.children.length) this.windGroup.remove(this.windGroup.children[0]);
     while (this.usgsGroup.children.length) this.usgsGroup.remove(this.usgsGroup.children[0]);
     // Keep only static/hydro pickables & labels (prevent memory leaks on refresh / exag change)
-    this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower', 'ballistic_halo', 'water_intake'].includes(m.userData.type));
+    this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower', 'ballistic_halo', 'water_intake', 'runoff_zone'].includes(m.userData.type));
     this.allLabels = this.allLabels.filter((sp) => sp.userData.groupTag !== 'live');
     this.xactVisuals = {};
     this.windVisuals = [];
@@ -1662,25 +1867,65 @@ export class Plume3DObservatory {
         const fp = this.flowPulses[i];
         const tr = fp.track;
         const dist = ((fp.phase + (nowSec * tr.speedKmS) / tr.totalLen) % 1.0) * tr.totalLen;
-        // Binary search cumulative arc-length array for exact river segment (zero curve-cutting!)
-        const cum = tr.cumLen;
-        let lo = 0, hi = cum.length - 2;
-        while (lo < hi) {
-          const mid = (lo + hi + 1) >> 1;
-          if (cum[mid] <= dist) lo = mid; else hi = mid - 1;
-        }
-        const segLen = cum[lo + 1] - cum[lo];
-        const f = segLen > 1e-6 ? (dist - cum[lo]) / segLen : 0;
-        const p0 = tr.pts3d[lo], p1 = tr.pts3d[lo + 1];
-        fp.mesh.position.set(
-          p0.x + (p1.x - p0.x) * f,
-          p0.y + (p1.y - p0.y) * f,
-          p0.z + (p1.z - p0.z) * f
-        );
-        this._tmpDir.subVectors(p1, p0);
+        this._sampleTrackAtDist(tr.pts3d, tr.cumLen, dist, fp.mesh.position, this._tmpDir);
         if (this._tmpDir.lengthSq() > 1e-8) {
-          this._tmpDir.normalize();
           fp.mesh.quaternion.setFromUnitVectors(this._upVec, this._tmpDir);
+        }
+      }
+    }
+
+    // Animate opt-in Hypothetical Storm-Wash Lead Fate packets (silt settling in Long Creek -> 65x Skunk dilution -> 1000x Mississippi fade)
+    if (this.runoffGroup.visible && this.runoffTrack && this.runoffParticles.length) {
+      const tr = this.runoffTrack;
+      const dLc = tr.dLongCreekEnd;
+      const dSk = tr.dSkunkEnd;
+      // Scale intensity gently with chosen wash-off scenario (0.01% -> 0.72x, 0.1% -> 1.0x, 1.0% -> 1.32x)
+      const pctGain = THREE.MathUtils.clamp(1.0 + Math.log10(Math.max(0.005, this.runoffPct) / 0.1) * 0.30, 0.65, 1.45);
+      for (let i = 0; i < this.runoffParticles.length; i++) {
+        const rp = this.runoffParticles[i];
+        const frac = (rp.phase + (nowSec * rp.speedKmS) / Math.max(4.0, rp.maxDist)) % 1.0;
+        const dist = frac * rp.maxDist;
+        this._sampleTrackAtDist(tr.pts3d, tr.cumLen, dist, this._tmpVec, this._tmpDir);
+
+        // Compute perpendicular horizontal spread (tight in Long Creek, widens gently as diluted in Skunk/Mississippi)
+        const spreadMul = dist < dLc ? 0.45 : (dist < dSk ? 1.15 : 1.75);
+        const px = -this._tmpDir.z * rp.lateralOffset * spreadMul;
+        const pz = this._tmpDir.x * rp.lateralOffset * spreadMul;
+        // Settling silt sinks slightly downward onto creek bed near end of its run
+        const sinkY = rp.settlesInCreek ? -0.14 * Math.pow(frac, 2.0) : 0.05;
+        rp.mesh.position.set(this._tmpVec.x + px, this._tmpVec.y + sinkY, this._tmpVec.z + pz);
+
+        if (rp.isDissolved) {
+          // Violet dissolved Pb (~10%): fades smoothly across 65x Skunk and 1,000x Mississippi dilution
+          const stageOp = dist < dLc ? 0.92 : (dist < dSk ? 0.48 : 0.22);
+          const stageSc = dist < dLc ? 0.82 : (dist < dSk ? 0.52 : 0.30);
+          rp.mat.color.setHex(dist < dSk ? 0xc084fc : 0x818cf8);
+          rp.mat.opacity = THREE.MathUtils.clamp(stageOp * pctGain, 0.12, 0.96);
+          rp.mesh.scale.setScalar(stageSc * Math.sqrt(pctGain));
+        } else if (rp.settlesInCreek) {
+          // Heavy silt-bound Pb settling onto Long Creek streambed
+          const fadeOut = frac > 0.78 ? (1.0 - (frac - 0.78) / 0.22) : 1.0;
+          rp.mat.color.setHex(frac > 0.55 ? 0xd97706 : 0xfbbf24);
+          rp.mat.opacity = THREE.MathUtils.clamp(0.92 * fadeOut * pctGain, 0.05, 0.96);
+          rp.mesh.scale.setScalar((1.05 - 0.35 * frac) * Math.sqrt(pctGain));
+        } else {
+          // Suspended silt-bound Pb entering Skunk (65x dilution) -> Mississippi (1000x dilution)
+          if (dist < dLc) {
+            rp.mat.color.setHex(0xf59e0b);
+            rp.mat.opacity = THREE.MathUtils.clamp(0.92 * pctGain, 0.2, 0.96);
+            rp.mesh.scale.setScalar(1.0 * Math.sqrt(pctGain));
+          } else if (dist < dSk) {
+            const tSk = (dist - dLc) / Math.max(1.0, dSk - dLc);
+            this._tmpCol.setHex(0xf59e0b).lerp(this._colDilute, 0.45 + 0.40 * tSk);
+            rp.mat.color.copy(this._tmpCol);
+            rp.mat.opacity = THREE.MathUtils.clamp((0.55 - 0.22 * tSk) * pctGain, 0.15, 0.85);
+            rp.mesh.scale.setScalar((0.62 - 0.15 * tSk) * Math.sqrt(pctGain));
+          } else {
+            const tMs = Math.min(1.0, (dist - dSk) / 22.0);
+            rp.mat.color.setHex(0x60a5fa);
+            rp.mat.opacity = THREE.MathUtils.clamp((0.28 - 0.16 * tMs) * pctGain, 0.08, 0.45);
+            rp.mesh.scale.setScalar(0.32 * Math.sqrt(pctGain));
+          }
         }
       }
     }

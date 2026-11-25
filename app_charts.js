@@ -800,7 +800,224 @@ function renderGroundWaterSection() {
     }
   }
 
+  renderFateDiagrams();
   renderGroundWaterCharts();
+}
+
+function getLiveRunoffMetrics() {
+  const skunkM3s = (state.liveData?.usgs_gauges || []).find((g) => g.site_id === '05474000')?.discharge_m3s || 92.3;
+  const skunkCfs = Math.round(skunkM3s / 0.0283168);
+  const lcM3s = 1.4;    // ~50 cfs typical stormflow in 61.1 km^2 HUC12 Long Creek
+  const msM3s = 1400.0; // ~49,400 cfs typical Nov Mississippi mainstem at Keokuk
+  const pulseSec = 6 * 3600;
+  const mobKg = 3049.0 * (state.gwRunoffPct / 100.0);
+  const lcTot = (mobKg * 1e6) / (lcM3s * pulseSec);
+  const skTot = (mobKg * 1e6) / (skunkM3s * pulseSec);
+  const msTot = (mobKg * 1e6) / (msM3s * pulseSec);
+  const dilSkunk = Math.round(skunkM3s / lcM3s);
+  const dilMiss = Math.round(msM3s / lcM3s);
+  return { skunkCfs, mobKg, lcTot, skTot, msTot, dilSkunk, dilMiss };
+}
+
+function renderFateDiagrams() {
+  const m = getLiveRunoffMetrics();
+  const pctStr = state.gwRunoffPct < 0.1 ? state.gwRunoffPct.toFixed(2) : (state.gwRunoffPct < 1 ? state.gwRunoffPct.toFixed(2) : state.gwRunoffPct.toFixed(1));
+
+  // Sync HUD banner stats & panel badge
+  const hudStats = document.getElementById('hud-runoff-stats');
+  if (hudStats) {
+    hudStats.textContent = `Long Creek (~50 cfs): ${m.lcTot.toFixed(1)} µg/L → Skunk (live ${m.skunkCfs.toLocaleString()} cfs · ${m.dilSkunk}×): ${m.skTot.toFixed(2)} µg/L → Mississippi (${m.dilMiss.toLocaleString()}×): ${m.msTot.toFixed(3)} µg/L`;
+  }
+  const watBadge = document.getElementById('fate-water-badge');
+  if (watBadge) {
+    watBadge.textContent = `${pctStr}% Storm (${m.mobKg.toFixed(2)} kg / 6h)`;
+  }
+
+  // 1. Left SVG: Vertical Ground & Soil Retention Cross-Section (0 cm -> 30 m depth)
+  const soilSvg = document.getElementById('fate-soil-svg');
+  if (soilSvg) {
+    const p5 = (state.staticData?.ground_water?.centerline_profile || []).find((r) => r.dist_km === 8.0) || {};
+    const wipe5 = (p5.wipe_ug_ft2_bound ?? 0.54).toFixed(2);
+    soilSvg.innerHTML = `
+      <defs>
+        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0b1526"/><stop offset="100%" stop-color="#132238"/>
+        </linearGradient>
+        <linearGradient id="topsoilLock" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.90"/>
+          <stop offset="52%" stop-color="#d97706" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#78350f" stop-opacity="0.22"/>
+        </linearGradient>
+        <linearGradient id="aquiferGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0c4a6e" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#075985" stop-opacity="0.88"/>
+        </linearGradient>
+        <marker id="arrAmber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/>
+        </marker>
+      </defs>
+      <!-- Sky & Surface -->
+      <rect x="0" y="0" width="540" height="62" fill="url(#skyGrad)"/>
+      <text x="14" y="18" fill="#fde68a" font-size="11" font-weight="700">On-Site IAAAP Blast Pad (~3,049 kg Pb)</text>
+      <text x="14" y="33" fill="#94a3b8" font-size="9.5">Heavy debris fell back in 10–15 s (Cam 3 verified)</text>
+      <text x="310" y="18" fill="#7dd3fc" font-size="10.5" font-weight="700">Off-Site Farmland (5 mi SW)</text>
+      <text x="310" y="33" fill="#94a3b8" font-size="9.5">≤${wipe5} µg/ft² dust (+0.0004 ppm soil)</text>
+      <!-- Animated Horizontal Rain Erosion Escape Arrow (ONLY active escape path!) -->
+      <path d="M 162 52 Q 255 44 378 55" fill="none" stroke="#fbbf24" stroke-width="2.6" class="fate-flow-line" marker-end="url(#arrAmber)"/>
+      <rect x="176" y="37" width="176" height="15" rx="4" fill="rgba(42,22,4,0.88)" stroke="rgba(251,191,36,0.55)" stroke-width="0.8"/>
+      <text x="264" y="48" text-anchor="middle" fill="#fcd34d" font-size="8.8" font-weight="700">Only escape: rain erosion → Long Creek</text>
+
+      <!-- Layer 1: Top 0-2 cm Clay/Organic Binding Band -->
+      <rect x="0" y="62" width="540" height="42" fill="#2c1d11"/>
+      <rect x="0" y="62" width="540" height="24" fill="url(#topsoilLock)"/>
+      <!-- Locked lead particles in top 0-2 cm -->
+      <circle cx="34" cy="70" r="3.4" fill="#fef08a"/><circle cx="52" cy="74" r="2.8" fill="#fbbf24"/>
+      <circle cx="72" cy="69" r="3.2" fill="#f59e0b"/><circle cx="95" cy="76" r="2.6" fill="#fbbf24"/>
+      <circle cx="118" cy="71" r="3.4" fill="#fef08a"/><circle cx="140" cy="74" r="2.8" fill="#f59e0b"/>
+      <circle cx="164" cy="72" r="2.4" fill="#fbbf24"/><circle cx="188" cy="75" r="2.1" fill="#d97706"/>
+      <text x="14" y="98" fill="#fcd34d" font-size="10.2" font-weight="700">0–2 cm Iowa Silt-Loam (pH 6.5–7.5 · Kd ~1,000 L/kg)</text>
+      <text x="334" y="98" fill="#fef3c7" font-size="9.5" font-weight="700">&gt;95% Pb chemically locked to clay</text>
+
+      <!-- Layer 2: Low-Permeability Glacial Clay Till Barrier -->
+      <rect x="0" y="104" width="540" height="86" fill="#1e1b18"/>
+      <line x1="0" y1="104" x2="540" y2="104" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4 4" opacity="0.6"/>
+      <!-- Blocked vertical arrows -->
+      <g stroke="#ef4444" stroke-width="1.8" opacity="0.85">
+        <line x1="78" y1="112" x2="78" y2="134"/><line x1="70" y1="134" x2="86" y2="134"/>
+        <line x1="178" y1="112" x2="178" y2="134"/><line x1="170" y1="134" x2="186" y2="134"/>
+        <line x1="278" y1="112" x2="278" y2="134"/><line x1="270" y1="134" x2="286" y2="134"/>
+      </g>
+      <text x="14" y="156" fill="#cbd5e1" font-size="10.5" font-weight="700">2 cm – 15 m: Glacial Clay Till &amp; Subsoil Barrier</text>
+      <text x="14" y="172" fill="#94a3b8" font-size="9.5">Vertical migration &lt;1–3 cm/decade (immobile oxide/metal Pb) · Stops rapid leaching</text>
+
+      <!-- Layer 3: Deep Clean Groundwater & Alluvial RO Wells -->
+      <rect x="0" y="190" width="540" height="85" fill="url(#aquiferGrad)"/>
+      <line x1="0" y1="190" x2="540" y2="190" stroke="#38bdf8" stroke-width="1.4" stroke-dasharray="6 4"/>
+      <path d="M 18 228 Q 140 218 270 228 T 522 228" fill="none" stroke="#7dd3fc" stroke-width="1.8" class="fate-flow-line" opacity="0.7"/>
+      <text x="14" y="212" fill="#6ee7b7" font-size="11" font-weight="800">15–30 m+: Deep Clean Aquifer &amp; Alluvial RO Wells (~0 µg/L)</text>
+      <text x="14" y="248" fill="#dbeafe" font-size="9.5">• Natural clay overburden + sand/gravel filtration blocks particulate &amp; sorbed lead</text>
+      <text x="14" y="263" fill="#bae6fd" font-size="9.5">• Fort Madison Reverse Osmosis (RO) wells reject &gt;98–99% of any dissolved metals</text>
+    `;
+  }
+
+  // 2. Right SVG: Longitudinal Watershed Transport, Sediment Settling & Live USGS Dilution (0 -> 70 km)
+  const watSvg = document.getElementById('fate-water-svg');
+  if (watSvg) {
+    const lcColor = m.lcTot >= 15 ? '#fbbf24' : '#34d399';
+    const skColor = m.skTot >= 15 ? '#fbbf24' : '#34d399';
+    const skNote = m.skTot < 15 ? `${(15 / Math.max(0.01, m.skTot)).toFixed(0)}× below 15 µg/L EPA limit` : 'Exceeds 15 µg/L total (10% diss.)';
+    watSvg.innerHTML = `
+      <defs>
+        <linearGradient id="riverDilute" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.88"/>
+          <stop offset="28%" stop-color="#d97706" stop-opacity="0.72"/>
+          <stop offset="36%" stop-color="#0ea5e9" stop-opacity="0.58"/>
+          <stop offset="68%" stop-color="#0284c7" stop-opacity="0.62"/>
+          <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.68"/>
+        </linearGradient>
+        <marker id="arrCyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/>
+        </marker>
+        <marker id="arrViol" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc"/>
+        </marker>
+      </defs>
+      <!-- Background -->
+      <rect x="0" y="0" width="540" height="275" fill="#09111d"/>
+
+      <!-- Upstream Burlington Protection Callout (TOP RIGHT, Clean Blue) -->
+      <rect x="334" y="10" width="196" height="44" rx="7" fill="rgba(6,40,28,0.88)" stroke="#10b981" stroke-width="1.1"/>
+      <text x="344" y="26" fill="#6ee7b7" font-size="10" font-weight="800">✓ Burlington Water (+12 km UPSTREAM)</text>
+      <text x="344" y="42" fill="#cbd5e1" font-size="8.8">Clean Mississippi water flows SOUTH past</text>
+      <path d="M 412 54 L 412 104" fill="none" stroke="#38bdf8" stroke-width="2.2" class="fate-flow-line" marker-end="url(#arrCyan)"/>
+      <text x="418" y="84" fill="#7dd3fc" font-size="8.4" font-weight="700">Upstream flow (0 Pb)</text>
+
+      <!-- Stage Divider Guides -->
+      <line x1="176" y1="54" x2="176" y2="232" stroke="#334155" stroke-width="1" stroke-dasharray="3 3"/>
+      <line x1="364" y1="54" x2="364" y2="232" stroke="#334155" stroke-width="1" stroke-dasharray="3 3"/>
+
+      <!-- Top Stage Headers -->
+      <text x="12" y="24" fill="#fde68a" font-size="10.2" font-weight="800">IAAAP → Long Creek</text>
+      <text x="12" y="38" fill="#94a3b8" font-size="8.8">0–8 km · ~50 cfs stormflow</text>
+
+      <text x="186" y="24" fill="#67e8f9" font-size="10.2" font-weight="800">Skunk River @ Augusta</text>
+      <text x="186" y="38" fill="#94a3b8" font-size="8.8">8–22 km · Live ${m.skunkCfs.toLocaleString()} cfs (${m.dilSkunk}×)</text>
+
+      <!-- Main River Channel Wedge (widens smoothly to show 1x -> 65x -> 1000x volume!) -->
+      <polygon points="10,126 176,120 364,106 530,96 530,174 364,164 176,154 10,148" fill="url(#riverDilute)"/>
+      <!-- Creek-Bed Settling Mud Deposit under Long Creek -->
+      <path d="M 10 148 Q 92 165 176 154 L 176 164 Q 92 176 10 156 Z" fill="#b45309" opacity="0.85"/>
+      <text x="16" y="176" fill="#fbbf24" font-size="8.7" font-weight="700">~90% silt-bound Pb settles to creek mud</text>
+
+      <!-- Animated Settling Amber Dots inside Long Creek -->
+      <circle cx="38" cy="130" r="3.4" fill="#fde047" class="fate-settle-dot"/>
+      <circle cx="74" cy="128" r="3.4" fill="#fbbf24" class="fate-settle-dot" style="animation-delay:0.7s"/>
+      <circle cx="114" cy="127" r="3.2" fill="#f59e0b" class="fate-settle-dot" style="animation-delay:1.4s"/>
+
+      <!-- Animated Suspended/Dissolved Streamlines -->
+      <path d="M 14 134 L 172 132 L 364 130 L 522 128" fill="none" stroke="#c084fc" stroke-width="2" class="fate-flow-line-fast" marker-end="url(#arrViol)" opacity="0.85"/>
+      <path d="M 180 142 L 364 146 L 522 150" fill="none" stroke="#38bdf8" stroke-width="2.2" class="fate-flow-line" marker-end="url(#arrCyan)" opacity="0.85"/>
+
+      <!-- Dilution Callouts Inside Water -->
+      <rect x="192" y="108" width="154" height="17" rx="4" fill="rgba(4,24,36,0.85)"/>
+      <text x="269" y="120" text-anchor="middle" fill="#67e8f9" font-size="9" font-weight="800">${m.dilSkunk}× Instant USGS Dilution</text>
+      <rect x="380" y="106" width="142" height="17" rx="4" fill="rgba(8,22,48,0.86)"/>
+      <text x="451" y="118" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="800">${m.dilMiss.toLocaleString()}× Mainstem Dilution</text>
+
+      <!-- Bottom Live Concentration Badges for All 3 Stages -->
+      <rect x="10" y="192" width="158" height="72" rx="7" fill="#131c2b" stroke="rgba(251,191,36,0.5)" stroke-width="1"/>
+      <text x="20" y="209" fill="#fde68a" font-size="9.5" font-weight="800">Long Creek Outfall</text>
+      <text x="20" y="227" fill="${lcColor}" font-size="12.5" font-weight="800">${m.lcTot.toFixed(1)} µg/L total</text>
+      <text x="20" y="242" fill="#d8b4fe" font-size="9">~${(m.lcTot * 0.1).toFixed(1)} µg/L dissolved (~10%)</text>
+      <text x="20" y="256" fill="#94a3b8" font-size="8.3">Non-drinking creek · Pad cap prevents</text>
+
+      <rect x="184" y="192" width="172" height="72" rx="7" fill="#131c2b" stroke="rgba(34,211,238,0.5)" stroke-width="1"/>
+      <text x="194" y="209" fill="#67e8f9" font-size="9.5" font-weight="800">Skunk River @ Augusta</text>
+      <text x="194" y="227" fill="${skColor}" font-size="12.5" font-weight="800">${m.skTot.toFixed(2)} µg/L total</text>
+      <text x="194" y="242" fill="#d8b4fe" font-size="9">~${(m.skTot * 0.1).toFixed(2)} µg/L dissolved</text>
+      <text x="194" y="256" fill="#86efac" font-size="8.3">${skNote}</text>
+
+      <rect x="370" y="192" width="160" height="72" rx="7" fill="#131c2b" stroke="rgba(96,165,250,0.5)" stroke-width="1"/>
+      <text x="380" y="209" fill="#93c5fd" font-size="9.5" font-weight="800">Mississippi (~50k cfs)</text>
+      <text x="380" y="227" fill="#34d399" font-size="12.5" font-weight="800">${m.msTot.toFixed(3)} µg/L total</text>
+      <text x="380" y="242" fill="#d8b4fe" font-size="9">~${(m.msTot * 0.1).toFixed(4)} µg/L dissolved</text>
+      <text x="380" y="256" fill="#93c5fd" font-size="8.3">Ft. Madison RO · Keokuk filtered</text>
+    `;
+  }
+}
+
+function setRunoffScenario(pct) {
+  state.gwRunoffPct = Number(pct);
+  const kg = (3049.0 * state.gwRunoffPct / 100).toFixed(2);
+  const lbl = document.getElementById('lbl-gw-runoff');
+  if (lbl) lbl.textContent = `${state.gwRunoffPct}% (${kg} kg mobilized)`;
+  const slider = document.getElementById('slider-gw-runoff');
+  if (slider) slider.value = Math.log10(Math.max(0.005, state.gwRunoffPct)).toFixed(2);
+  document.querySelectorAll('[data-runoff-pct]').forEach((b) => {
+    b.classList.toggle('active', Math.abs(Number(b.dataset.runoffPct) - state.gwRunoffPct) < 0.005);
+  });
+  if (state.obs3d) state.obs3d.setRunoffSim(state.obs3d.runoffSimActive, state.gwRunoffPct);
+  renderFateDiagrams();
+  renderGroundWaterCharts();
+}
+
+function setRunoffSimActive(enabled) {
+  const on = !!enabled;
+  if (state.obs3d) state.obs3d.setRunoffSim(on, state.gwRunoffPct);
+  const btn = document.getElementById('btn-runoff-sim');
+  if (btn) btn.classList.toggle('active', on);
+  const chk = document.getElementById('chk-runoff-sim');
+  if (chk) chk.checked = on;
+  const banner = document.getElementById('hud-runoff-banner');
+  if (banner) banner.classList.toggle('show', on);
+  // Keep bottom-center pills non-overlapping: hide wipe scale when runoff banner is active
+  const wipeScale = document.getElementById('hud-wipe-scale');
+  const selDrape = document.getElementById('sel-drape');
+  if (wipeScale) {
+    if (on) wipeScale.classList.remove('show');
+    else if (selDrape && selDrape.value === 'deposition') wipeScale.classList.add('show');
+  }
+  renderFateDiagrams();
 }
 
 function renderGroundWaterCharts() {
@@ -1073,8 +1290,27 @@ async function boot() {
   const wipeScaleEl = document.getElementById('hud-wipe-scale');
   document.getElementById('sel-drape').onchange = (e) => {
     obs.setDrape(e.target.value);
-    if (wipeScaleEl) wipeScaleEl.classList.toggle('show', e.target.value === 'deposition');
+    if (wipeScaleEl) {
+      const showWipe = e.target.value === 'deposition' && !obs.runoffSimActive;
+      wipeScaleEl.classList.toggle('show', showWipe);
+    }
   };
+  const btnRunoff = document.getElementById('btn-runoff-sim');
+  if (btnRunoff) btnRunoff.onclick = () => setRunoffSimActive(!obs.runoffSimActive);
+  const chkRunoff = document.getElementById('chk-runoff-sim');
+  if (chkRunoff) chkRunoff.onchange = (e) => setRunoffSimActive(e.target.checked);
+  document.querySelectorAll('[data-runoff-pct]').forEach((b) => {
+    b.onclick = () => setRunoffScenario(Number(b.dataset.runoffPct));
+  });
+  const btnJumpRunoff = document.getElementById('btn-jump-3d-runoff');
+  if (btnJumpRunoff) {
+    btnJumpRunoff.onclick = () => {
+      document.getElementById('model-3d')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('active', b.dataset.preset === 'watershed'));
+      obs.flyToPreset('watershed');
+      setRunoffSimActive(true);
+    };
+  }
   document.getElementById('sel-color').onchange = (e) => obs.setColorMode(e.target.value);
   document.getElementById('slider-exag').oninput = (e) => {
     const v = Number(e.target.value);
@@ -1134,11 +1370,8 @@ async function boot() {
   const gwRunSlider = document.getElementById('slider-gw-runoff');
   if (gwRunSlider) {
     gwRunSlider.oninput = (e) => {
-      state.gwRunoffPct = Number((10 ** Number(e.target.value)).toPrecision(2));
-      const kg = (3049.0 * state.gwRunoffPct / 100).toFixed(2);
-      const lbl = document.getElementById('lbl-gw-runoff');
-      if (lbl) lbl.textContent = `${state.gwRunoffPct}% (${kg} kg mobilized)`;
-      renderGroundWaterCharts();
+      const pct = Number((10 ** Number(e.target.value)).toPrecision(2));
+      setRunoffScenario(pct);
     };
   }
 

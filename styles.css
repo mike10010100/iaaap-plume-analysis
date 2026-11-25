@@ -434,6 +434,166 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .wipe-scale-contours span { display: inline-flex; align-items: center; gap: 5px; }
 .wipe-scale-contours i { width: 12px; height: 2.5px; display: inline-block; border-radius: 2px; }
 
+/* Opt-In 3D Hypothetical Storm-Wash Runoff Toggle & Banner */
+.hud-btn.runoff-btn {
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #fde68a;
+}
+.hud-btn.runoff-btn:hover {
+  border-color: #fbbf24;
+  color: #fff;
+  background: rgba(245, 158, 11, 0.22);
+}
+.hud-btn.runoff-btn.active {
+  background: rgba(245, 158, 11, 0.30);
+  border-color: #fbbf24;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+}
+.hud-runoff-banner {
+  position: absolute;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 340px;
+  max-width: min(520px, calc(100% - 24px));
+  background: rgba(24, 15, 6, 0.94);
+  border: 1px solid rgba(251, 191, 36, 0.65);
+  border-radius: 9px;
+  padding: 0.48rem 0.78rem;
+  font-size: 0.7rem;
+  color: #fef3c7;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.62);
+}
+.hud-runoff-banner.show { display: flex; }
+.runoff-ban-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.runoff-ban-title { font-weight: 800; color: #fbbf24; letter-spacing: 0.02em; }
+.runoff-ban-title small { font-weight: 600; color: #cbd5e1; }
+.runoff-ban-stats {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.69rem;
+  color: #e0f2fe;
+}
+.runoff-ban-leg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.66rem;
+  color: #cbd5e1;
+}
+.runoff-ban-leg span { display: inline-flex; align-items: center; gap: 5px; }
+.runoff-ban-leg i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+.runoff-pct-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.runoff-pill {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #334863;
+  color: #cbd5e1;
+  border-radius: 5px;
+  padding: 0.18rem 0.46rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.runoff-pill:hover { border-color: #fbbf24; color: #fef3c7; }
+.runoff-pill.active {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: #fbbf24;
+  color: #fff;
+}
+
+/* Interactive Ground-to-Water Lead Fate Visual Cross-Section */
+.gw-fate-box {
+  margin-top: 1.15rem;
+  background: linear-gradient(180deg, rgba(11, 18, 30, 0.96), rgba(8, 13, 22, 0.98));
+  border: 1px solid #263a54;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+}
+.gw-fate-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.gw-fate-hdr h3 { margin: 0 0 0.25rem; font-size: 1.02rem; color: #f8fafc; }
+.gw-fate-sub { margin: 0; font-size: 0.82rem; color: #cbd5e1; max-width: 680px; line-height: 1.48; }
+.gw-fate-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.gw-fate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+@media (max-width: 960px) {
+  .gw-fate-grid { grid-template-columns: 1fr; }
+}
+.gw-fate-panel {
+  background: #0a101b;
+  border: 1px solid #203148;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem 0.5rem;
+}
+.fate-panel-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 0.45rem;
+}
+.fate-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 6px;
+}
+@keyframes fateFlowDash {
+  from { stroke-dashoffset: 32; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes fateSettle {
+  0%   { transform: translate(0px, 0px); opacity: 0.95; }
+  70%  { transform: translate(26px, 24px); opacity: 0.85; }
+  100% { transform: translate(34px, 31px); opacity: 0.15; }
+}
+.fate-flow-line {
+  stroke-dasharray: 9 7;
+  animation: fateFlowDash 1.4s linear infinite;
+}
+.fate-flow-line-fast {
+  stroke-dasharray: 8 6;
+  animation: fateFlowDash 0.95s linear infinite;
+}
+.fate-settle-dot {
+  animation: fateSettle 2.6s ease-in infinite;
+}
+
 /* Time-Synced Live EPA Telemetry Overlay inside 3D Canvas */
 .hud-epa-live {
   position: absolute;
