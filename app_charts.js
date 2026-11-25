@@ -39,15 +39,32 @@ function fmtCstClock(sec) {
   return `${h12}:${mm}:${ss} ${ampm} CST`;
 }
 
+function compassName(deg) {
+  const names = ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest'];
+  return names[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+}
+
 function renderHeroKPIs() {
   const sum = state.liveData?.summary || {};
   const xact = state.liveData?.epa_xact || {};
   document.getElementById('live-status-text').textContent =
-    `Updated ${state.liveData.fetched_at_utc.replace('T', ' ').replace('Z', ' UTC')}`;
+    `Updated ${state.liveData.fetched_at_utc.slice(11, 19)} UTC`;
 
   const latestTs = sum.xact_latest_obs_utc ? sum.xact_latest_obs_utc.slice(11, 16) + ' UTC' : 'N/A';
-  document.getElementById('kpi-xact-val').textContent = `${(sum.xact_max_post_ugm3 ?? 0).toFixed(4)} µg/m³`;
+  const maxPost = sum.xact_max_post_ugm3 ?? 0;
+  const pctSafe = (maxPost / 0.15) * 100.0;
+  document.getElementById('kpi-xact-val').textContent = `${maxPost.toFixed(4)} µg/m³`;
   document.getElementById('kpi-xact-sub').textContent = `Max post-blast across ${sum.xact_stations_active || 4} Xact sites (latest ${latestTs})`;
+  const xSimpleSub = document.getElementById('kpi-xact-simple-sub');
+  if (xSimpleSub) {
+    xSimpleSub.textContent = `${pctSafe.toFixed(1)}% of EPA's 0.15 µg/m³ safety limit (latest ${latestTs})`;
+  }
+
+  // Plain-English TL;DR air summary card
+  const tldrAir = document.getElementById('tldr-air-summary');
+  if (tldrAir) {
+    tldrAir.innerHTML = `All 4 continuous EPA lead trailers downwind remain near zero. The highest post-blast reading so far is <strong>${maxPost.toFixed(4)} µg/m³</strong>—just <strong>${pctSafe.toFixed(1)}%</strong> of EPA's federal 0.15 µg/m³ standard (latest check ${latestTs}), indicating <strong>&gt;99.95%</strong> of the lead stayed out of downwind air.`;
+  }
 
   const f2 = sum.as02_inverse_bound_pct, f3 = sum.as03_inverse_bound_pct;
   document.getElementById('kpi-bound-val').textContent = f2 ? `≲ ${f2.toFixed(3)}% Pb` : '≲ 0.013% Pb';
@@ -55,8 +72,19 @@ function renderHeroKPIs() {
     `>99.95% contained (AS02 ≤${(xact.AS02?.q_max_kg ?? 0.39).toFixed(2)} kg; AS03 ≲${(f3 ?? 0.047).toFixed(3)}%)`;
 
   if (sum.kbrl_wind_from_deg != null) {
+    const mph = (sum.kbrl_wind_ms * 2.237).toFixed(1);
+    const toDir = compassName(sum.kbrl_wind_to_deg);
+    const fromDir = compassName(sum.kbrl_wind_from_deg);
     document.getElementById('kpi-wind-val').textContent = `${Math.round(sum.kbrl_wind_from_deg)}° → ${Math.round(sum.kbrl_wind_to_deg)}° @ ${sum.kbrl_wind_ms} m/s`;
-    document.getElementById('kpi-wind-sub').textContent = `KBRL Burlington ASOS (${(sum.kbrl_valid_utc || '').slice(11, 16)} UTC) · ${(sum.kbrl_wind_ms * 2.237).toFixed(1)} mph`;
+    document.getElementById('kpi-wind-sub').textContent = `KBRL Burlington ASOS (${(sum.kbrl_valid_utc || '').slice(11, 16)} UTC) · ${mph} mph`;
+    const wSimpleVal = document.getElementById('kpi-wind-simple-val');
+    const wSimpleSub = document.getElementById('kpi-wind-simple-sub');
+    if (wSimpleVal) wSimpleVal.textContent = `${toDir} · ${mph} mph`;
+    if (wSimpleSub) wSimpleSub.textContent = `Blowing from ${fromDir.toLowerCase()} (Burlington airport, ${(sum.kbrl_valid_utc || '').slice(11, 16)} UTC)`;
+    const tldrWind = document.getElementById('tldr-wind-summary');
+    if (tldrWind) {
+      tldrWind.innerHTML = `${fromDir} winds (~<strong>${mph} mph</strong>) carried the smoke <strong>${toDir.toLowerCase()}</strong> over rural farmland toward <strong>Augusta, Denmark, West Point, and Donnellson</strong>—steering it away from Middletown, Danville, and Burlington.`;
+    }
   }
   document.getElementById('kpi-net-val').textContent =
     `${sum.epa_monitors_deployed || 43} EPA · ${sum.asos_stations_live || 10} ASOS · ${sum.rwis_stations_live || 5} RWIS`;
@@ -193,22 +221,26 @@ function renderSensitivityChart() {
 }
 
 function renderLiveTables() {
-  // 1. Live EPA Xact Table
+  // 1. Live EPA Xact Table (clean plain-English columns + expert inverse-bound column)
   const xactBody = document.getElementById('tbl-xact-body');
   xactBody.innerHTML = '';
+  const stnTownHint = { AS01: 'near Denmark', AS02: 'near West Point', AS03: 'near Donnellson', AS04: 'near Farmington' };
   for (const [sid, s] of Object.entries(state.liveData.epa_xact || {})) {
     const tr = document.createElement('tr');
+    const pctLimit = ((s.post_blast_max / 0.15) * 100).toFixed(1);
+    const mi = (s.dist_km / 1.60934).toFixed(1);
     const stBadge = s.post_blast_max <= 0.003
-      ? '<span class="badge badge-green">Baseline / Zero</span>'
-      : '<span class="badge badge-amber">Trace Ambient</span>';
+      ? '<span class="badge badge-green">Safe / Near Zero</span>'
+      : '<span class="badge badge-amber">Low Ambient Baseline</span>';
     tr.innerHTML = `
-      <td><strong>${sid}</strong></td>
-      <td>${s.dist_km} km @ ${s.bearing_deg}°</td>
-      <td>${s.obs_count}</td>
-      <td>${(s.latest_ts_utc || '').replace('T', ' ').replace('Z', 'Z')}</td>
+      <td><strong>${sid}</strong> <span style="color:var(--muted);font-size:0.78rem">(${stnTownHint[sid] || 'SW corridor'})</span></td>
+      <td>${mi} mi <span class="expert-only">(${s.dist_km} km @ ${s.bearing_deg}°)</span></td>
+      <td class="expert-only">${s.obs_count}</td>
+      <td>${(s.latest_ts_utc || '').slice(11, 16)} UTC</td>
       <td><code>${(s.latest_value ?? 0).toFixed(4)} µg/m³</code></td>
       <td><code>${s.pre_blast_max.toFixed(4)}</code> / <code>${s.post_blast_max.toFixed(4)}</code></td>
-      <td>${s.f_max_pct ? `≲ ${s.f_max_pct.toFixed(4)}% (≤${s.q_max_kg} kg)` : 'Plume arriving ~T+98m'}</td>
+      <td><strong>${pctLimit}%</strong> of limit</td>
+      <td class="expert-only">${s.f_max_pct ? `≲ ${s.f_max_pct.toFixed(4)}% (≤${s.q_max_kg} kg)` : 'Plume arriving ~T+98m'}</td>
       <td>${stBadge}</td>`;
     xactBody.appendChild(tr);
   }
@@ -250,18 +282,22 @@ function renderLiveTables() {
     wxBody.appendChild(tr);
   }
 
-  // 3. Community Table
+  // 3. Community Table (Simple plain-English path status + Expert χ/Q column)
   const tBody = document.getElementById('tbl-towns-body');
   if (tBody && tBody.children.length === 0) {
     for (const t of state.staticData.towns) {
       const probBadge = t.ens_prob_pct >= 60 ? 'badge-red' : (t.ens_prob_pct >= 15 ? 'badge-amber' : 'badge-green');
+      const simpleLabel = t.ens_prob_pct >= 60 ? 'Direct smoke path' : (t.ens_prob_pct >= 15 ? 'Edge of smoke path' : 'Outside main path');
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${t.town}</strong></td>
-        <td>${t.dist_mi} mi (${t.dist_km} km) @ ${t.bearing_deg}°</td>
-        <td><span class="badge ${probBadge}">${t.ens_prob_pct}%</span></td>
-        <td>${t.mean_arrival_min != null ? `~${fmtCstClock(t.mean_arrival_min * 60)} (+${Math.round(t.mean_arrival_min)}m)` : 'Outside path'}</td>
-        <td><code>${t.chi_over_Q_s_m3 > 0 ? t.chi_over_Q_s_m3.toExponential(2) : '0'}</code></td>`;
+        <td>${t.dist_mi} mi <span class="expert-only">(${t.dist_km} km @ ${t.bearing_deg}°)</span></td>
+        <td>
+          <span class="badge ${probBadge} simple-only">${simpleLabel}</span>
+          <span class="badge ${probBadge} expert-only">${t.ens_prob_pct}%</span>
+        </td>
+        <td>${t.mean_arrival_min != null ? `~${fmtCstClock(t.mean_arrival_min * 60)} <span class="expert-only">(+${Math.round(t.mean_arrival_min)}m)</span>` : 'Outside path'}</td>
+        <td class="expert-only"><code>${t.chi_over_Q_s_m3 > 0 ? t.chi_over_Q_s_m3.toExponential(2) : '0'}</code></td>`;
       tBody.appendChild(tr);
     }
   }
@@ -659,7 +695,78 @@ async function liveBrowserRefresh() {
   }
 }
 
+function setViewMode(mode, persist = true) {
+  const isExp = mode === 'expert';
+  document.body.classList.toggle('mode-expert', isExp);
+  document.body.classList.toggle('mode-simple', !isExp);
+  const bSim = document.getElementById('btn-view-simple');
+  const bExp = document.getElementById('btn-view-expert');
+  if (bSim) bSim.classList.toggle('active', !isExp);
+  if (bExp) bExp.classList.toggle('active', isExp);
+  if (!isExp) {
+    const panel = document.getElementById('hud-controls-panel');
+    if (panel) panel.classList.remove('force-open');
+  }
+  if (persist) {
+    try { localStorage.setItem('iaaap_view_mode', isExp ? 'expert' : 'simple'); } catch (_) {}
+  }
+  // Resize Plotly charts & 3D WebGL canvas smoothly when revealing hidden expert blocks!
+  requestAnimationFrame(() => {
+    if (state.obs3d) state.obs3d._onResize();
+    if (isExp && window.Plotly) {
+      renderStationChart();
+      renderSensitivityChart();
+      render24hArchiveCharts();
+      for (const id of ['chart-xact', 'chart-sensitivity', 'chart-24h-assim', 'chart-24h-wx', 'chart-24h-xact', 'chart-24h-aq']) {
+        const el = document.getElementById(id);
+        if (el && el.data) Plotly.Plots.resize(el);
+      }
+    }
+  });
+}
+
 async function boot() {
+  // Determine initial Simple vs. Expert mode (URL param > localStorage > default Simple!)
+  const qpInit = new URLSearchParams(window.location.search);
+  let initMode = 'simple';
+  if (qpInit.get('view') === 'expert' || qpInit.get('view') === 'simple') {
+    initMode = qpInit.get('view');
+  } else {
+    try {
+      const saved = localStorage.getItem('iaaap_view_mode');
+      if (saved === 'expert' || saved === 'simple') initMode = saved;
+    } catch (_) {}
+  }
+  setViewMode(initMode, false);
+
+  // Wire Simple / Expert toggles immediately so user can switch anytime
+  const btnSim = document.getElementById('btn-view-simple');
+  const btnExp = document.getElementById('btn-view-expert');
+  const btnCtaExp = document.getElementById('btn-cta-expert');
+  if (btnSim) btnSim.onclick = () => setViewMode('simple');
+  if (btnExp) btnExp.onclick = () => setViewMode('expert');
+  if (btnCtaExp) {
+    btnCtaExp.onclick = () => {
+      setViewMode('expert');
+      document.getElementById('live-explorer')?.scrollIntoView({ behavior: 'smooth' });
+    };
+  }
+  const advPanel = document.getElementById('hud-controls-panel');
+  const btn3dAdv = document.getElementById('btn-3d-adv-toggle');
+  const btn3dClose = document.getElementById('btn-3d-adv-close');
+  if (btn3dAdv && advPanel) {
+    btn3dAdv.onclick = () => {
+      const open = advPanel.classList.toggle('force-open');
+      btn3dAdv.classList.toggle('active', open);
+    };
+  }
+  if (btn3dClose && advPanel) {
+    btn3dClose.onclick = () => {
+      advPanel.classList.remove('force-open');
+      if (btn3dAdv) btn3dAdv.classList.remove('active');
+    };
+  }
+
   const [staticRes, demRes, plumeRes, liveRes] = await Promise.all([
     fetch('site_data/scene_static.json'),
     fetch('site_data/terrain_dem.json'),

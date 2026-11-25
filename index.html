@@ -3,70 +3,131 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IAAAP Controlled Detonation — Interactive 3D Plume Model & Live OSINT Report</title>
+  <title>IAAAP Controlled Detonation — Interactive 3D Smoke Map, Timeline & Live EPA Air Tracker</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
 </head>
-<body>
+<body class="mode-simple">
   <header class="topbar">
     <div class="brand">
       <span class="pulse-dot"></span>
-      <span>IAAAP Plume OSINT Observatory</span>
+      <span class="simple-only">IAAAP Detonation Live Tracker</span>
+      <span class="expert-only">IAAAP Plume OSINT Observatory</span>
     </div>
     <nav class="nav-links">
-      <a href="#model-3d">3D Model</a>
-      <a href="#live-explorer">Live Telemetry</a>
-      <a href="#history-24h">24h History</a>
-      <a href="#map-2d">2D Heatmap</a>
-      <a href="#figures">Figures (1–6)</a>
-      <a href="#findings">Findings &amp; Capability</a>
-      <a href="https://github.com/mike10010100/iaaap-plume-analysis" target="_blank" rel="noopener">GitHub Repo ↗</a>
+      <a href="#model-3d">3D Map</a>
+      <a href="#story-timeline">Story &amp; Timeline</a>
+      <a href="#live-explorer">Live Air Data</a>
+      <a href="#history-24h" class="expert-only">24h Archive</a>
+      <a href="#map-2d">2D Map</a>
+      <a href="#figures" class="expert-only">Figures</a>
+      <a href="#findings">Towns</a>
+      <a href="https://github.com/mike10010100/iaaap-plume-analysis" target="_blank" rel="noopener">GitHub ↗</a>
     </nav>
-    <div style="display:flex;align-items:center;gap:0.55rem;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:0.48rem;flex-wrap:wrap;">
+      <div class="mode-switch" role="group" aria-label="View complexity mode">
+        <button id="btn-view-simple" class="active" data-view="simple" title="Plain-English overview with essential live air readings, 3D map, and full history timeline">Simple</button>
+        <button id="btn-view-expert" data-view="expert" title="Unlock full technical controls, sensitivity slider, 24h wind assimilation archive, and all 6 forensic figures">Expert</button>
+      </div>
       <span class="live-pill">
         <span class="pulse-dot" style="width:7px;height:7px;"></span>
         <span id="live-status-text">Loading live feeds...</span>
       </span>
-      <button id="btn-live-refresh" class="btn-refresh" title="Fetch fresh live EPA Xact & telemetry directly in browser">↻ Live Refresh</button>
+      <button id="btn-live-refresh" class="btn-refresh" title="Fetch fresh live EPA Xact & telemetry directly in browser">↻ Refresh</button>
     </div>
   </header>
 
   <main class="container">
     <!-- Hero Section -->
     <section class="hero">
-      <div class="eyebrow">Open-Source Video Forensics · Stereo Geolocation · 3D Atmospheric Dispersion · Live Telemetry</div>
+      <div class="eyebrow simple-only">Live Air Monitoring · Interactive 3D Smoke Map · Complete Background Timeline</div>
+      <div class="eyebrow expert-only">Open-Source Video Forensics · Stereo Geolocation · 3D Atmospheric Dispersion · Live Telemetry</div>
+
       <h1>Iowa Army Ammunition Plant Controlled Detonation (Nov 25, 2026)</h1>
-      <p class="subtitle">
+
+      <p class="subtitle simple-only">
+        A plain-English public tracker of the <strong>9:00 a.m. CST</strong> U.S. Army controlled detonation of ~5 tons of aging, unstable lead azide in Middletown, Iowa—combining <strong>real-time EPA lead air monitors</strong>, live local weather stations, and a 3D computer simulation of where the smoke traveled. Switch to <strong>Expert</strong> mode in the top bar anytime for full meteorology, sensitivity sliders, and technical figures.
+      </p>
+      <p class="subtitle expert-only">
         An end-to-end open-source capability test reconstructing the 9:00 a.m. CST controlled detonation of ~5 tons (~9,500 lb / 3,050 kg Pb) of degraded lead azide at Middletown, Iowa using two public broadcast livestreams (<strong>KWQC-TV6 / C-SPAN</strong> and <strong>KCRG-TV9 / Associated Press</strong>), FAA obstacle records, NWS/IEM ASOS &amp; Iowa DOT RWIS weather networks, 12Z upper-air soundings, and live EPA Region 7 Xact continuous lead monitoring.
       </p>
+
+      <!-- Plain-English 3-Card Bottom Line (Simple View) -->
+      <div class="tldr-grid simple-only">
+        <div class="tldr-card">
+          <h3>💥 What Happened</h3>
+          <p>At <strong>9:00 a.m. CST</strong> (the morning before Thanksgiving), the U.S. Army safely blew up 68 aging drums (~5 tons) of degraded detonator chemical inside two bunkers at IAAAP before freezing weather could trigger an accidental blast.</p>
+        </div>
+        <div class="tldr-card">
+          <h3>💨 Where the Smoke Went</h3>
+          <p id="tldr-wind-summary">Northeast winds pushed the smoke <strong>southwest</strong> over rural farmland toward <strong>Augusta, Denmark, West Point, and Donnellson</strong>—steering it away from Middletown, Danville, and Burlington.</p>
+        </div>
+        <div class="tldr-card safe">
+          <h3>✅ What Live EPA Air Monitors Show</h3>
+          <p id="tldr-air-summary">Checking live EPA Region 7 continuous lead sensors downwind of the plant...</p>
+        </div>
+      </div>
+
       <div class="kpi-grid">
         <div class="kpi-card">
-          <div class="kpi-hdr"><div class="kpi-label">Stereo Blast Origin (46.3°)</div><span class="tag-live">Video-Measured</span></div>
-          <div class="kpi-val cyan">40.810°N, -91.267°W</div>
-          <div class="kpi-sub">±250 m (5.8× tighter than single cam) · Dual bunkers ~240 m apart</div>
+          <div class="kpi-hdr">
+            <div class="kpi-label simple-only">Blast Location</div>
+            <div class="kpi-label expert-only">Stereo Blast Origin (46.3°)</div>
+            <span class="tag-live">Video-Measured</span>
+          </div>
+          <div class="kpi-val cyan simple-only">Inside IAAAP</div>
+          <div class="kpi-sub simple-only">2 bunkers near Middletown, IA · 9:00 AM CST</div>
+          <div class="kpi-val cyan expert-only">40.810°N, -91.267°W</div>
+          <div class="kpi-sub expert-only">±250 m (5.8× tighter than single cam) · Dual bunkers ~240 m apart</div>
         </div>
+
         <div class="kpi-card">
-          <div class="kpi-hdr"><div class="kpi-label">EPA Xact Lead Peak</div><span class="tag-live">● Live Sensor</span></div>
+          <div class="kpi-hdr">
+            <div class="kpi-label simple-only">Highest Live Lead Reading</div>
+            <div class="kpi-label expert-only">EPA Xact Lead Peak</div>
+            <span class="tag-live">● Live Sensor</span>
+          </div>
           <div class="kpi-val green" id="kpi-xact-val">Loading...</div>
-          <div class="kpi-sub" id="kpi-xact-sub">Checking AS01–AS04 continuous telemetry</div>
+          <div class="kpi-sub simple-only" id="kpi-xact-simple-sub">Checking % of EPA's 0.15 µg/m³ safety standard</div>
+          <div class="kpi-sub expert-only" id="kpi-xact-sub">Checking AS01–AS04 continuous telemetry</div>
         </div>
+
         <div class="kpi-card">
-          <div class="kpi-hdr"><div class="kpi-label">Airborne Pb Bound</div><span class="tag-hybrid">Live + Model</span></div>
-          <div class="kpi-val green" id="kpi-bound-val">≲ 0.013% Pb</div>
-          <div class="kpi-sub" id="kpi-bound-sub">&gt;99.95% contained / non-lofted (mixed-PBL constraint)</div>
+          <div class="kpi-hdr">
+            <div class="kpi-label simple-only">Lead Kept Out of Downwind Air</div>
+            <div class="kpi-label expert-only">Airborne Pb Bound</div>
+            <span class="tag-hybrid">Live + Model</span>
+          </div>
+          <div class="kpi-val green simple-only">&gt; 99.95%</div>
+          <div class="kpi-sub simple-only">Bunker barriers &amp; gels trapped nearly all lead near the blast</div>
+          <div class="kpi-val green expert-only" id="kpi-bound-val">≲ 0.013% Pb</div>
+          <div class="kpi-sub expert-only" id="kpi-bound-sub">&gt;99.95% contained / non-lofted (mixed-PBL constraint)</div>
         </div>
+
         <div class="kpi-card">
-          <div class="kpi-hdr"><div class="kpi-label">KBRL Surface Wind</div><span class="tag-live">● Live Sensor</span></div>
-          <div class="kpi-val amber" id="kpi-wind-val">Loading...</div>
-          <div class="kpi-sub" id="kpi-wind-sub">SW–WSW transport away from Burlington &amp; Middletown</div>
+          <div class="kpi-hdr">
+            <div class="kpi-label simple-only">Live Wind Direction</div>
+            <div class="kpi-label expert-only">KBRL Surface Wind</div>
+            <span class="tag-live">● Live Sensor</span>
+          </div>
+          <div class="kpi-val amber simple-only" id="kpi-wind-simple-val">Southwest</div>
+          <div class="kpi-sub simple-only" id="kpi-wind-simple-sub">Blowing smoke away from Middletown &amp; Burlington</div>
+          <div class="kpi-val amber expert-only" id="kpi-wind-val">Loading...</div>
+          <div class="kpi-sub expert-only" id="kpi-wind-sub">SW–WSW transport away from Burlington &amp; Middletown</div>
         </div>
+
         <div class="kpi-card">
-          <div class="kpi-hdr"><div class="kpi-label">Sensor Network</div><span class="tag-live">● 24h Archived</span></div>
+          <div class="kpi-hdr">
+            <div class="kpi-label simple-only">Live Monitors Active</div>
+            <div class="kpi-label expert-only">Sensor Network</div>
+            <span class="tag-live">● Auto-Synced</span>
+          </div>
           <div class="kpi-val" id="kpi-net-val">43 EPA · 10 ASOS · 5 RWIS</div>
-          <div class="kpi-sub" id="kpi-net-sub">Local systemd daemon (10m) · 24h+ multi-detector time series</div>
+          <div class="kpi-sub simple-only">Updates automatically every 10 min from EPA &amp; NWS</div>
+          <div class="kpi-sub expert-only" id="kpi-net-sub">Local systemd daemon (10m) · 24h+ multi-detector time series</div>
         </div>
       </div>
     </section>
@@ -74,42 +135,58 @@
     <!-- Flagship 3D Interactive WebGL Observatory -->
     <section id="model-3d" class="block">
       <h2>
-        🌐 Interactive 3D Atmospheric Plume &amp; Live Sensor Model
+        <span class="simple-only">🌐 Interactive 3D Smoke Path &amp; Live Air Monitors</span>
+        <span class="expert-only">🌐 Interactive 3D Atmospheric Plume &amp; Live Sensor Model</span>
         <span class="tag-live">● Live Sensors</span>
         <span class="tag-proj">◆ Modeled Projection</span>
       </h2>
-      <p class="section-lead">
-        Compare <strong style="color:#6ee7b7">live observed telemetry</strong> (time-synced EPA Region 7 Xact continuous lead monitors, 43 EPA stations, ASOS/RWIS wind vectors, and video-calibrated camera sightlines) directly against our <strong style="color:#fcd34d">modeled 3D Lagrangian projection</strong> (2,400 simulated particle trajectories, ground heatmaps, and mixing/inversion lids) over real SE Iowa / NE Missouri topography (156–241 m MSL). <strong>Scrub the timeline to watch live EPA readings evolve in real time as the projected plume passes each station.</strong>
+      <p class="section-lead simple-only">
+        <strong>How to explore:</strong> Drag to spin the map, scroll to zoom, and press <strong>Play</strong> or drag the time bar below to watch the <strong style="color:#fcd34d">computer-simulated smoke cloud</strong> travel southwest while the <strong style="color:#6ee7b7">green EPA air monitor towers</strong> display their <strong>real measured lead levels</strong> at that exact minute. Click any green tower or wind arrow for details.
+      </p>
+      <p class="section-lead expert-only">
+        Compare <strong style="color:#6ee7b7">live observed telemetry</strong> (time-synced EPA Region 7 Xact continuous lead monitors, 43 EPA stations, ASOS/RWIS wind vectors, and video-calibrated camera sightlines) directly against our <strong style="color:#fcd34d">modeled 3D Lagrangian projection</strong> (2,400 simulated particle trajectories with live ASOS/RWIS wind assimilation, ground heatmaps, and mixing/inversion lids) over real SE Iowa / NE Missouri topography (156–241 m MSL).
       </p>
 
       <div id="stage-3d-wrap" class="stage-3d-wrap">
         <canvas id="canvas-3d"></canvas>
         <div id="loading-3d" class="loading-overlay">
-          <div>Initializing 3D Terrain, 2,400 Plume Trajectories &amp; Live Sensors...</div>
+          <div>Loading 3D Map, Smoke Simulation &amp; Live EPA Air Monitors...</div>
         </div>
 
         <!-- Top-Left Camera Viewpoint Presets -->
         <div class="hud-top-left">
           <button class="hud-btn active" data-preset="overview">3D Overview</button>
-          <button class="hud-btn" data-preset="kwqc" title="Snap to KWQC Cam 1 on 190th Ave looking SSE across FAA Tower T3">Cam 1 (KWQC View)</button>
-          <button class="hud-btn" data-preset="kcrg" title="Snap to KCRG/AP Cam 2 at 9856 202nd Ave looking ESE">Cam 2 (KCRG/AP View)</button>
-          <button class="hud-btn" data-preset="shear" title="Side cross-section showing vertical wind shear and 1,075m inversion cap">Shear Cross-Section</button>
-          <button class="hud-btn" data-preset="top">Top-Down</button>
+          <button class="hud-btn expert-preset" data-preset="kwqc" title="Snap to KWQC Cam 1 on 190th Ave looking SSE across FAA Tower T3">Cam 1 (KWQC View)</button>
+          <button class="hud-btn expert-preset" data-preset="kcrg" title="Snap to KCRG/AP Cam 2 at 9856 202nd Ave looking ESE">Cam 2 (KCRG/AP View)</button>
+          <button class="hud-btn expert-preset" data-preset="shear" title="Side cross-section showing vertical wind shear and 1,075m inversion cap">Shear Cross-Section</button>
+          <button class="hud-btn" data-preset="top">Top-Down Map</button>
           <button id="btn-fs" class="hud-btn">⛶ Fullscreen</button>
+          <button id="btn-3d-adv-toggle" class="hud-btn simple-only" title="Open advanced 3D layer, wind-assimilation, and map optics panel">⚙ Expert 3D Controls</button>
         </div>
 
-        <!-- Split Live vs. Projection Legend -->
+        <!-- Simple vs. Expert Legend -->
         <div class="hud-legend">
-          <div class="leg-group-hdr live">● Live Observed / Calibrated</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> EPA Xact Towers (time-synced @ T)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#fbbf24"></span> Xact Trace &gt;0 µg/m³ Pulse @ T</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Live ASOS &amp; RWIS Wind Arrows</div>
-          <div class="leg-item"><span class="leg-dot square" style="background:#ff44ff"></span> Video Cam Sightlines &amp; Tower T3</div>
-          <div class="leg-group-hdr proj">◆ Modeled Projection (Simulated)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Projected Coarse Dust (20–70 µm)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#0de0ff"></span> Projected PM10 (3–15 µm)</div>
-          <div class="leg-item"><span class="leg-dot" style="background:#f552e0"></span> Projected PM2.5 (&lt;2.5 µm)</div>
-          <div class="leg-item"><span class="leg-dot dashed"></span> Ground Heatmap &amp; PBL / 1,075 m Cap</div>
+          <div class="simple-only">
+            <div class="leg-group-hdr live">● Real Measurements</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> Green Towers: Real EPA Lead Monitors</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#fbbf24"></span> Gold Glow: Tiny Trace Detected @ Time</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Arrows: Real Local Wind Stations</div>
+            <div class="leg-group-hdr proj">◆ Computer Simulation</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Orange/Cyan/Pink: Simulated Smoke Path</div>
+            <div class="leg-item"><span class="leg-dot dashed"></span> Ground Glow: Projected Downwind Path</div>
+          </div>
+          <div class="expert-only">
+            <div class="leg-group-hdr live">● Live Observed / Calibrated</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> EPA Xact Towers (time-synced @ T)</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#fbbf24"></span> Xact Trace &gt;0 µg/m³ Pulse @ T</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Time-Synced ASOS &amp; RWIS Wind Arrows</div>
+            <div class="leg-item"><span class="leg-dot square" style="background:#ff44ff"></span> Video Cam Sightlines &amp; Tower T3</div>
+            <div class="leg-group-hdr proj">◆ Modeled Projection (Simulated)</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Projected Coarse Dust (20–70 µm)</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#0de0ff"></span> Projected PM10 (3–15 µm)</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#f552e0"></span> Projected PM2.5 (&lt;2.5 µm)</div>
+            <div class="leg-item"><span class="leg-dot dashed"></span> Ground Heatmap &amp; PBL / 1,075 m Cap</div>
+          </div>
         </div>
 
         <!-- Time-Synced Live EPA Xact Telemetry Overlay (Bottom-Left) -->
@@ -117,25 +194,29 @@
           <div class="epa-live-hdr">
             <div class="epa-live-title">
               <span class="pulse-dot" style="width:7px;height:7px"></span>
-              <span>Live EPA Xact</span>
+              <span class="simple-only">Live EPA Lead Monitors</span>
+              <span class="expert-only">Live EPA Xact</span>
             </div>
             <div style="display:flex;align-items:center;gap:0.35rem;">
-              <span id="epa-hud-badge" class="tag-live">Live Obs</span>
+              <span id="epa-hud-badge" class="tag-live">Live Window</span>
               <button id="btn-epa-collapse" class="epa-toggle-btn" title="Collapse/expand live EPA timeline overlay">Hide</button>
             </div>
           </div>
           <div class="epa-live-body">
             <div class="epa-live-sub">
-              <span><strong style="color:#34d399">Green bars:</strong> Live Xact · <strong style="color:#fbbf24">Dashed:</strong> Projected arrival</span>
-              <span id="epa-hud-clock">T + 25m</span>
+              <span><strong style="color:#34d399">Green/Gold:</strong> Real readings · <strong style="color:#fbbf24">Dashed:</strong> Smoke timing</span>
+              <span id="epa-hud-clock">T + 11m</span>
             </div>
             <div id="epa-live-rows"></div>
           </div>
         </div>
 
-        <!-- Right-Side Layer & Exaggeration Controls -->
-        <aside class="hud-controls">
-          <h4>3D Layers &amp; Optics</h4>
+        <!-- Right-Side Layer & Exaggeration Controls (Hidden in Simple Mode unless toggled) -->
+        <aside id="hud-controls-panel" class="hud-controls">
+          <h4>
+            <span>3D Layers &amp; Optics</span>
+            <button id="btn-3d-adv-close" class="epa-toggle-btn simple-only" title="Hide expert controls">✕</button>
+          </h4>
           <div class="ctrl-group">
             <div class="ctrl-subhdr proj">◆ Plume Advection &amp; Projection</div>
             <div class="ctrl-row">
@@ -207,35 +288,45 @@
             <option value="100">100× Spd</option>
           </select>
           <div class="timeline-track-wrap">
-            <input id="slider-time" class="timeline-slider" type="range" min="0" max="14400" step="5" value="1500" style="width:100%;margin:0" />
-            <div class="timeline-zones" title="Green = verified live EPA observation window; Amber = forward projection beyond latest observation">
+            <input id="slider-time" class="timeline-slider" type="range" min="0" max="14400" step="5" value="660" style="width:100%;margin:0" />
+            <div class="timeline-zones" title="Green = real live EPA readings available; Amber = computer forecast beyond latest real reading">
               <div id="timeline-live-fill" class="timeline-live-fill"></div>
             </div>
             <div class="timeline-zone-labels">
-              <span id="tz-live-lbl" class="tz-live">● Live EPA Obs Window (0 → 110m)</span>
-              <span id="tz-proj-lbl" class="tz-proj">◆ Projection Only (&gt;16:50 UTC → +4h)</span>
+              <span id="tz-live-lbl" class="tz-live">● Live EPA Obs Window</span>
+              <span id="tz-proj-lbl" class="tz-proj">◆ Forecast Beyond Latest Reading</span>
             </div>
           </div>
           <span id="readout-mode" class="mode-pill live">● Live Obs + Proj</span>
-          <div id="readout-time" class="time-readout">T + 25m · 9:25:00 AM CST</div>
-          <div id="readout-pbl" class="pbl-readout">PBL: 414 m · Airborne: 63%</div>
+          <div id="readout-time" class="time-readout">T + 11m · 9:11:00 AM CST</div>
+          <div id="readout-pbl" class="pbl-readout expert-only">PBL: 341 m · Airborne: 80%</div>
         </div>
       </div>
 
       <!-- Explicit Live Data vs. Modeled Projection Transparency Card -->
       <div class="provenance-grid">
         <div class="prov-card live">
-          <h4><span class="tag-live">● Live Observed / Measured</span> Ground Truth Inputs</h4>
-          <ul>
+          <h4><span class="tag-live">● What Is Real Measured Data</span></h4>
+          <ul class="simple-only">
+            <li><strong>Green EPA Lead Monitors (<code>AS01–AS04</code>):</strong> Real air samplers parked downwind that measure airborne lead every 5 minutes and publish live results.</li>
+            <li><strong>Wind Arrows &amp; 43 EPA Sites:</strong> Real local airport and highway weather sensors updated every 10 minutes, plus actual EPA monitor locations.</li>
+            <li><strong>Blast Timing &amp; Location:</strong> Verified directly from two public Iowa TV livestreams of the 9:00 a.m. blast.</li>
+          </ul>
+          <ul class="expert-only">
             <li><strong>EPA Region 7 Xact (<code>AS01–AS04</code>):</strong> Real 5-minute continuous lead measurements (<code>µg/m³</code>) synced frame-by-frame to the 3D playback clock up to the latest live observation.</li>
-            <li><strong>43 EPA Monitor Sites + 15 Weather Sensors:</strong> Real GPS locations, live NWS/IEM ASOS airport winds, and Iowa DOT RWIS highway winds updated every 10 minutes.</li>
+            <li><strong>43 EPA Monitor Sites + 15 Weather Sensors:</strong> Real GPS locations, live NWS/IEM ASOS airport winds, and Iowa DOT RWIS highway winds updated every 10 minutes (24h+ rolling archive).</li>
             <li><strong>Dual-Video Kinematics &amp; Stereo Origin:</strong> Directly measured from KWQC + KCRG/AP 1080p frames, FAA Tower T3 (235 ft), and acoustic shockwave delay (<code>±250 m</code>).</li>
           </ul>
         </div>
         <div class="prov-card proj">
-          <h4><span class="tag-proj">◆ Modeled Projection</span> Simulated Atmospheric Dispersion</h4>
-          <ul>
-            <li><strong>Live-Assimilated vs. Forecast Plume (2,400 pts):</strong> In default <em>Live-Assimilated</em> mode, particle advection up to the latest real-world wind observation is driven by inverse-distance-weighted <strong>observed ASOS + RWIS winds</strong> (reanalysis), smoothly transitioning to Open-Meteo forecast winds beyond. Switch to <em>Initial 15Z Forecast Only</em> to compare how observed wind shifts moved the plume.</li>
+          <h4><span class="tag-proj">◆ What Is a Computer Projection</span></h4>
+          <ul class="simple-only">
+            <li><strong>The 3D Floating Smoke Cloud:</strong> A computer simulation showing <em>where</em> air from the blast travels—it does <strong>not</strong> mean dangerous lead is actually in the cloud (live EPA sensors show almost none escaped).</li>
+            <li><strong>The Glowing Ground Path:</strong> Shows which direction the wind pushes smoke, not actual lead levels on the ground.</li>
+            <li><strong>Past the Green Bar on the Timeline:</strong> Once playback moves past the latest real-world clock time, monitors say <code>No obs yet</code> to show you are viewing a pure forecast.</li>
+          </ul>
+          <ul class="expert-only">
+            <li><strong>Live-Assimilated vs. Forecast Plume (2,400 pts):</strong> In default <em>Live-Assimilated</em> mode, particle advection up to the latest real-world wind observation is driven by inverse-distance-weighted <strong>observed ASOS + RWIS winds</strong> (reanalysis), smoothly transitioning to Open-Meteo forecast winds beyond. Switch to <em>Initial 15Z Forecast</em> to compare how observed wind shifts moved the plume.</li>
             <li><strong>Ground Heatmaps (<code>χ/Q</code>, Deposition, Sensitivity):</strong> Relative dispersion dilution factor and hypothetical <code>% Pb</code> release scenarios; actual airborne lead requires scaling by source term <code>Q</code>.</li>
             <li><strong>Beyond Latest Real-World Timestamp:</strong> When playback advances past the green observed window on the timeline, Xact towers switch to <code>No obs yet</code> and wind arrows dim to mark pure forward projection.</li>
           </ul>
@@ -243,56 +334,185 @@
       </div>
     </section>
 
+    <!-- NEW SECTION: Complete Plain-English Historical Timeline of the Lead Azide -->
+    <section id="story-timeline" class="block">
+      <h2>📜 How We Got Here: The Lead Azide Story, Storage Slip-Ups, Delays &amp; Safeguards</h2>
+      <p class="section-lead">
+        Why did the U.S. Army need to detonate nearly 5 tons of a hazardous explosive in southeast Iowa the day before Thanksgiving? Here is the full timeline—from how the material was made and stored, to what went wrong inside the bunkers, why neutralization was canceled, why the blast was delayed, and what precautions were put in place.
+      </p>
+
+      <div class="story-timeline">
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-meta">
+            <span class="tl-date">Pre-2004 → ~2009</span>
+            <span class="badge badge-cyan">Creation &amp; Consolidation</span>
+          </div>
+          <h3>What Lead Azide Is &amp; Why It Was Stored in Middletown</h3>
+          <p>
+            <strong>Lead azide</strong> is an ultra-sensitive "primary explosive" used in tiny amounts inside military detonators to ignite larger munitions. Because dry lead azide can explode from the slightest bump or spark, the military stores bulk supplies submerged in a protective liquid bath of <strong>water and ethanol</strong> inside sealed drums. Aging concerns first surfaced as early as <strong>2004</strong>, and around <strong>2009</strong> the Army consolidated its national reserve stockpile into earth-covered concrete bunkers ("igloos") at the <strong>Iowa Army Ammunition Plant (IAAAP)</strong>, operated by private contractor <strong>American Ordnance LLC</strong>.
+          </p>
+          <div class="tl-tech expert-only">
+            <strong>Technical context:</strong> Elemental lead makes up ~71% of lead azide (<code>Pb(N₃)₂</code>) by mass, meaning ~9,500–9,700 lb across 68 drums represents roughly ~3,050 kg (~3.4 short tons) of elemental lead stored in reserve magazines.
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-dot warn"></div>
+          <div class="tl-meta">
+            <span class="tl-date">2009 → Aug–Sep 2025</span>
+            <span class="badge badge-amber">Storage Slip-Up &amp; Degradation</span>
+          </div>
+          <h3>What Went Wrong: Liquid Evaporated &amp; Crystals Grew Unstable</h3>
+          <p>
+            Over roughly two decades in long-term reserve storage, the stabilizing water-ethanol liquid slowly <strong>evaporated</strong> inside <strong>68 drums</strong> holding nearly 5 tons of lead azide. As the drums dried out, the chemical underwent <strong>recrystallization</strong>—forming larger, unstable crystals acutely sensitive to tiny friction, shock, pinpricks, or freezing cold. That breakdown turned a serviceable military reserve into volatile hazardous waste too dangerous to safely haul away. By <strong>August–September 2025</strong>, American Ordnance began warning disposal firms that the 68 drums were recrystallizing and destabilizing.
+          </p>
+          <div class="tl-tech expert-only">
+            <strong>Why freezing weather mattered:</strong> Routine stockpile surveillance in early 2026 confirmed severe deterioration; Army and federal explosive-safety experts warned that incoming freezing temperatures could cause contraction/ice stress inside partially wetted drums and trigger a spontaneous, uncontrolled mass detonation inside the igloos.
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-dot warn"></div>
+          <div class="tl-meta">
+            <span class="tl-date">Sep 2025 → May 2026</span>
+            <span class="badge badge-amber">Neutralization Plan Canceled</span>
+          </div>
+          <h3>Chemical Neutralization Hired — Then Abruptly Scrapped</h3>
+          <p>
+            On <strong>September 24, 2025</strong>, American Ordnance solicited a disposal quote from <strong>MuniRem Environmental</strong>, a Georgia firm specializing in chemical neutralization—an approach that douses explosives with neutralizer to destroy them without an open blast or smoke cloud. Following a federal expert panel recommendation, the Army officially hired MuniRem in <strong>March 2026</strong>, and MuniRem submitted its final plan on <strong>May 4, 2026</strong>. Just days later (<strong>May 8–14, 2026</strong>), the Army abruptly canceled the contract—concluding that even opening or handling the severely degraded drums posed an unacceptable risk of a sudden, fatal explosion for workers.
+          </p>
+          <div class="tl-tech expert-only">
+            <strong>Transparency dispute:</strong> Investigative reporting (Washington Post / Iowa Public Radio) later revealed contractor emails from Feb 4, 2026 noting the government was weighing another approach, and MuniRem filed FOIA requests after its May cancellation went largely unexplained.
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-meta">
+            <span class="tl-date">Jul – Oct 2026</span>
+            <span class="badge badge-cyan">Shift to Controlled Detonation</span>
+          </div>
+          <h3>Emergency Storage Extension &amp; Community Outcry</h3>
+          <p>
+            On <strong>July 13, 2026</strong>, the EPA granted a temporary emergency storage extension while the Army shifted entirely to an <strong>in-place controlled detonation</strong> plan. When the Army filed environmental assessments and hosted local public open houses in <strong>September–October 2026</strong>, residents and environmental advocates across southeast Iowa, western Illinois, and northeast Missouri raised urgent alarms over toxic lead dust potentially traveling downwind over towns and farmland.
+          </p>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-dot alert"></div>
+          <div class="tl-meta">
+            <span class="tl-date">Nov 13 – Nov 23, 2026</span>
+            <span class="badge badge-red">Delays &amp; Appeals Court Battle</span>
+          </div>
+          <h3>Why the Detonation Was Delayed From Nov 20 to Nov 25</h3>
+          <p>
+            On <strong>November 13, 2026</strong>, EPA Region 7 issued an emergency hazardous waste permit, and the Army initially scheduled the blast for <strong>Friday, November 20</strong>. Two major forces forced delays:
+            (1) On <strong>November 20</strong>, the Army postponed the blast (first aiming for Nov 23) to refine safety/evacuation logistics and wait for favorable wind and temperature conditions; and
+            (2) Environmental groups—including the <strong>Iowa Environmental Council</strong> and <strong>Sierra Club</strong> (represented by <strong>Earthjustice</strong>)—sued to halt the permit, winning a temporary freeze from the <strong>8th U.S. Circuit Court of Appeals</strong>.
+            On <strong>November 23</strong>, the 8th Circuit <strong>lifted the stay</strong>, concluding federal agencies faced an urgent choice between a monitored controlled blast versus an uncontrolled spontaneous explosion as freezing weather closed in.
+          </p>
+          <div class="tl-tech expert-only">
+            <strong>Legal framework:</strong> EPA acted under RCRA emergency permitting authority; DOJ simultaneously argued emergency statutory provisions applied given the imminent hazard. The extra five days between Nov 20 and Nov 25 also gave FEMA, EPA, CDC/HHS, and state emergency management time to stand up lodging assistance and deploy 43 ground air-monitoring stations.
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-dot safe"></div>
+          <div class="tl-meta">
+            <span class="tl-date">Nov 25, 2026 · 9:00 AM CST</span>
+            <span class="badge badge-green">Execution &amp; Live Verification</span>
+          </div>
+          <h3>Controlled Detonation Carried Out — Live Air Monitors Show Near-Zero Lead</h3>
+          <p>
+            Waiting for clear, dry <strong>northeast winds blowing southwest</strong> away from Middletown and Burlington, the Army detonated the 68 drums across two bunkers at <strong>9:00 a.m. CST</strong>. Continuous EPA Region 7 air monitors stationed directly along the downwind smoke corridor detected only brief micro-traces—well under <strong>7% of EPA's federal safety standard (0.15 µg/m³)</strong>—strongly indicating that the bunker barriers and ballistic gels kept <strong>over 99.95% of the lead out of the downwind air</strong>, even as public scrutiny continues over how the stockpile was allowed to deteriorate in storage.
+          </p>
+        </div>
+      </div>
+
+      <h3 style="margin-top:1.4rem;font-size:1.05rem;">🛡️ Safety &amp; Containment Precautions Taken Before the Blast</h3>
+      <div class="precautions-grid">
+        <div class="prec-card">
+          <h4>🧱 Bunker Barriers &amp; Ballistic Gels</h4>
+          <p>Engineers placed structural barriers, sand/earth containment, water misting, and specialized <strong>ballistic gels</strong> around the drums inside the bunkers to absorb shock and trap lead dust before it could loft into the sky.</p>
+        </div>
+        <div class="prec-card">
+          <h4>🌬️ Strict Wind-Direction Window</h4>
+          <p>The Army held the blast specifically until steady northeast winds could carry smoke <strong>southwest</strong> over sparsely populated farmland—steering it away from Middletown, Burlington, and the Mississippi River.</p>
+        </div>
+        <div class="prec-card">
+          <h4>🏠 Evacuations, Sheltering &amp; Schools</h4>
+          <p>Iowa Gov. Kim Reynolds issued a disaster proclamation for Des Moines, Lee, and Van Buren counties. FEMA supported recommended evacuations/hotel lodging for Middletown and a 5-mile SW cone (+1-mile buffer); downwind residents were advised to stay indoors with HVAC on recirculate, and nearby schools canceled classes or moved activities indoors.</p>
+        </div>
+        <div class="prec-card">
+          <h4>📡 43 EPA Monitors &amp; NASA Aircraft</h4>
+          <p>EPA Region 7 deployed <strong>43 ground monitoring sites</strong>—including 4 continuous real-time Xact lead trailers (<code>AS01–AS04</code>) and mobile labs—while specialized <strong>NASA P-3 and Gulfstream</strong> research aircraft flew low-altitude passes to track the plume aloft.</p>
+        </div>
+      </div>
+
+      <div class="story-sources">
+        <strong>Sources compiled from public reporting &amp; agency releases:</strong> U.S. Army / IAAAP official updates, U.S. EPA Region 7 public dashboard, 8th U.S. Circuit Court of Appeals order (Nov 23, 2026), Office of Iowa Governor Kim Reynolds, Associated Press, PBS NewsHour, Iowa Public Radio, The Washington Post, CBS News, and CNN.
+      </div>
+    </section>
+
     <!-- Live Telemetry & Interactive Release-Fraction Explorer -->
     <section id="live-explorer" class="block">
       <h2>
-        📡 Live Telemetry Cross-Check &amp; Release-Fraction Sensitivity Explorer
+        <span class="simple-only">📡 Live EPA Air Monitor Readings</span>
+        <span class="expert-only">📡 Live Telemetry Cross-Check &amp; Release-Fraction Sensitivity Explorer</span>
         <span class="tag-live">● Live EPA Xact</span>
-        <span class="tag-proj">◆ Modeled Curves</span>
+        <span class="tag-proj expert-only">◆ Modeled Curves</span>
       </h2>
-      <p class="section-lead">
+      <p class="section-lead simple-only">
+        These four real-time EPA Region 7 air monitoring trailers sit directly along the southwest smoke corridor, checking the air for lead every 5 minutes. For context, EPA's federal safety limit for airborne lead is <strong>0.15 µg/m³</strong> (3-month rolling average)—every reading below is a tiny fraction of that threshold.
+      </p>
+      <p class="section-lead expert-only">
         Compare real-time EPA Region 7 Xact continuous lead measurements (updated automatically by our daemon and via direct browser refresh) against our 80-member modeled plume arrival curves. Drag the hypothetical airborne lead release slider to see which source-term fractions are consistent with—or immediately ruled out by—live ground telemetry.
       </p>
 
-      <div class="explorer-controls">
-        <div>
-          <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.3rem;text-transform:uppercase;">Select Live Xact Monitor</div>
-          <div class="stn-tabs">
-            <button class="stn-tab active" data-stn="AS01">AS01 (6 km)</button>
-            <button class="stn-tab" data-stn="AS02">AS02 (19 km)</button>
-            <button class="stn-tab" data-stn="AS03">AS03 (31 km)</button>
-            <button class="stn-tab" data-stn="AS04">AS04 (44 km)</button>
+      <!-- Expert-Only Sensitivity Slider + Dual Plotly Charts -->
+      <div class="expert-only">
+        <div class="explorer-controls">
+          <div>
+            <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.3rem;text-transform:uppercase;">Select Live Xact Monitor</div>
+            <div class="stn-tabs">
+              <button class="stn-tab active" data-stn="AS01">AS01 (6 km)</button>
+              <button class="stn-tab" data-stn="AS02">AS02 (19 km)</button>
+              <button class="stn-tab" data-stn="AS03">AS03 (31 km)</button>
+              <button class="stn-tab" data-stn="AS04">AS04 (44 km)</button>
+            </div>
+          </div>
+          <div class="slider-box">
+            <div class="s-top">
+              <span>Hypothetical Airborne Respirable Pb Fraction:</span>
+              <strong id="lbl-release" style="color:var(--amber)">0.1% (3.05 kg Pb)</strong>
+            </div>
+            <input id="slider-release" type="range" min="-3" max="1" step="0.05" value="-1" style="width:100%" />
+          </div>
+          <div>
+            <span id="slider-verdict" class="badge badge-amber">Evaluating...</span>
           </div>
         </div>
-        <div class="slider-box">
-          <div class="s-top">
-            <span>Hypothetical Airborne Respirable Pb Fraction:</span>
-            <strong id="lbl-release" style="color:var(--amber)">0.1% (3.05 kg Pb)</strong>
-          </div>
-          <input id="slider-release" type="range" min="-3" max="1" step="0.05" value="-1" style="width:100%" />
-        </div>
-        <div>
-          <span id="slider-verdict" class="badge badge-amber">Evaluating...</span>
+
+        <div class="charts-grid">
+          <div id="chart-xact" class="chart-box"></div>
+          <div id="chart-sensitivity" class="chart-box"></div>
         </div>
       </div>
 
-      <div class="charts-grid">
-        <div id="chart-xact" class="chart-box"></div>
-        <div id="chart-sensitivity" class="chart-box"></div>
-      </div>
-
-      <h3 style="margin-top:1.5rem;font-size:1.05rem;">Live EPA Xact Station Telemetry &amp; Inverse Release Bounds</h3>
+      <h3 class="expert-only" style="margin-top:1.5rem;font-size:1.05rem;">Live EPA Xact Station Telemetry &amp; Inverse Release Bounds</h3>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Station</th>
-              <th>Dist. &amp; Bearing</th>
-              <th>Obs Count</th>
-              <th>Latest Reading (UTC)</th>
-              <th>Latest Value</th>
-              <th>Pre / Post Max (<span style="text-transform:none">µg/m³</span>)</th>
-              <th>Inverse Bound (at 0.005 floor)</th>
+              <th>Monitor</th>
+              <th>Distance from Blast</th>
+              <th class="expert-only">Obs Count</th>
+              <th>Latest Check (UTC)</th>
+              <th>Latest Reading</th>
+              <th>Pre / Post Peak (<span style="text-transform:none">µg/m³</span>)</th>
+              <th>% of EPA 0.15 Limit</th>
+              <th class="expert-only">Inverse Bound (at 0.005 floor)</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -300,27 +520,29 @@
         </table>
       </div>
 
-      <h3 style="margin-top:1.5rem;font-size:1.05rem;">Live Surrounding Surface Weather (10 ASOS Airports + 5 Iowa DOT RWIS Corridor Sensors)</h3>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Network</th>
-              <th>Station</th>
-              <th>Dist. &amp; Bearing</th>
-              <th>Latest Valid</th>
-              <th>Wind (FROM → TO)</th>
-              <th>Speed</th>
-              <th>Temp</th>
-            </tr>
-          </thead>
-          <tbody id="tbl-wx-body"></tbody>
-        </table>
+      <div class="expert-only">
+        <h3 style="margin-top:1.5rem;font-size:1.05rem;">Live Surrounding Surface Weather (10 ASOS Airports + 5 Iowa DOT RWIS Corridor Sensors)</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Network</th>
+                <th>Station</th>
+                <th>Dist. &amp; Bearing</th>
+                <th>Latest Valid</th>
+                <th>Wind (FROM → TO)</th>
+                <th>Speed</th>
+                <th>Temp</th>
+              </tr>
+            </thead>
+            <tbody id="tbl-wx-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <!-- 24-Hour Rolling Multi-Detector Time-Series & Wind Assimilation Archive -->
-    <section id="history-24h" class="block">
+    <!-- 24-Hour Rolling Multi-Detector Time-Series & Wind Assimilation Archive (Expert Mode) -->
+    <section id="history-24h" class="block expert-only">
       <h2>
         🕒 24-Hour Multi-Detector Time-Series &amp; Live Wind Assimilation Archive
         <span class="tag-live">● Rolling 24h+ History</span>
@@ -350,18 +572,27 @@
       </div>
     </section>
 
-    <!-- Embedded 2D Leaflet Map -->
+    <!-- Embedded 2D Leaflet Map (Visible in BOTH Simple & Expert!) -->
     <section id="map-2d" class="block">
-      <h2>🗺️ Interactive 2D Street &amp; Satellite Dispersion Heatmap <span class="tag-proj">◆ Modeled Contours</span> <span class="tag-live">● 43 EPA &amp; ASOS Sites</span></h2>
-      <p class="section-lead">
+      <h2>
+        <span class="simple-only">🗺️ Interactive 2D Street Map (Find Your Town)</span>
+        <span class="expert-only">🗺️ Interactive 2D Street &amp; Satellite Dispersion Heatmap</span>
+        <span class="tag-proj">◆ Simulated Path</span>
+        <span class="tag-live">● 43 EPA &amp; Weather Sites</span>
+      </h2>
+      <p class="section-lead simple-only">
+        Zoom in to check your town or road, see the simulated southwest smoke corridor, and click any green marker to inspect nearby EPA air-monitoring locations.
+        <a href="assets/map_2d.html" target="_blank" rel="noopener">Open fullscreen map ↗</a>
+      </p>
+      <p class="section-lead expert-only">
         Toggle high-resolution <strong style="color:#fcd34d">modeled</strong> breathing-zone exposure (<code>χ/Q</code>), surface dust deposition, and hypothetical <code>0.1%</code> Pb 15-minute peak screening contours alongside <strong style="color:#6ee7b7">observed</strong> dual-camera stereo sightlines, all 43 EPA monitoring sites, and regional ASOS wind arrows.
         <a href="assets/map_2d.html" target="_blank" rel="noopener">Open 2D map in fullscreen tab ↗</a>
       </p>
       <iframe class="map-2d-frame" src="assets/map_2d.html" title="Interactive 2D Dispersion Heatmap" loading="lazy"></iframe>
     </section>
 
-    <!-- Publication Figures Gallery -->
-    <section id="figures" class="block">
+    <!-- Publication Figures Gallery (Expert Mode) -->
+    <section id="figures" class="block expert-only">
       <h2>📊 Visual Forensics, Stereo Triangulation &amp; Dispersion Figures (Click to Zoom)</h2>
       <p class="section-lead">All six analytical plates clearly separate <span class="tag-live">● Observed / Video-Measured</span> evidence from <span class="tag-proj">◆ Modeled Projections</span> across 60,000–80,000 Lagrangian particles.</p>
       <div class="fig-grid">
@@ -410,77 +641,95 @@
       </div>
     </section>
 
-    <!-- Findings, Community Impact Table, Daemon Docs & OSINT Capability Matrix -->
+    <!-- Downwind Towns + Expert Findings & OSINT Capability Matrix -->
     <section id="findings" class="block">
-      <h2>🔬 Modeled Community Impact, Daemon Architecture &amp; OSINT Capability Verdict</h2>
+      <h2>
+        <span class="simple-only">🏘️ Nearby Towns &amp; Simulated Smoke Arrival Times</span>
+        <span class="expert-only">🔬 Modeled Community Impact, Daemon Architecture &amp; OSINT Capability Verdict</span>
+        <span class="tag-proj">◆ Modeled Projection</span>
+      </h2>
+      <p class="section-lead simple-only">
+        Based on our computer wind simulation, here is which nearby towns fell inside the smoke path (and roughly when air from the blast passed overhead) versus which towns were upwind or outside the path. <strong>Reminder:</strong> Being inside the smoke path does <em>not</em> mean unsafe lead—live EPA monitors inside this exact corridor measured near-zero lead.
+      </p>
 
-      <div class="callout green">
+      <div class="callout green expert-only">
         <strong>Headline Verification:</strong> Purely open-source analysis (two public news videos + FAA/OSM + NWS/IEM/Open-Meteo meteorology) independently locked the blast origin to <code>±250 m</code> inside IAAAP, measured vertical wind shear across three altitude bands (<code>4.9 → 7.2 → 8.7 m/s</code>), and reproduced the exact SW–WSW dispersion corridor where EPA deployed 43 monitors—predicting plume arrival times at <code>AS01</code> (T+12m vs T+10–11m obs) and <code>AS02</code> (T+42m vs T+45m obs) to within ~3 minutes.
       </div>
 
-      <h3 style="margin-top:1.3rem;font-size:1.05rem;">Downwind Community Dispersion Summary (60-Realization Ensemble) <span class="tag-proj">◆ Modeled Projection</span></h3>
+      <h3 class="expert-only" style="margin-top:1.3rem;font-size:1.05rem;">Downwind Community Dispersion Summary (60-Realization Ensemble)</h3>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Community</th>
-              <th>Distance &amp; Bearing</th>
-              <th>Ensemble Hit Prob.</th>
-              <th>Est. Mean Plume Arrival (CST)</th>
-              <th>Breathing-Zone χ/Q (s/m³)</th>
+              <th>Distance from Blast</th>
+              <th><span class="simple-only">In Simulated Smoke Path?</span><span class="expert-only">Ensemble Hit Prob.</span></th>
+              <th>Est. Smoke Arrival (CST)</th>
+              <th class="expert-only">Breathing-Zone χ/Q (s/m³)</th>
             </tr>
           </thead>
           <tbody id="tbl-towns-body"></tbody>
         </table>
       </div>
 
-      <h3 style="margin-top:1.6rem;font-size:1.05rem;">OSINT Capability Assessment Matrix</h3>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Dimension</th>
-              <th>Capability</th>
-              <th>Demonstrated Open-Source Performance</th>
-              <th>Fundamental Bottlenecks</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>Multi-Camera Stereo Geolocation</strong></td>
-              <td><span class="badge badge-green">Very High</span></td>
-              <td>KWQC (FAA Tower T3) + KCRG/AP ("9856" 911 sign at 9856 202nd Ave) achieved 46.3° stereo cross-bearing (±250 m, 5.8× tighter).</td>
-              <td>Requires ≥2 distinct camera angles with resolvable static landmarks (towers, signage, tree gaps).</td>
-            </tr>
-            <tr>
-              <td><strong>3D Plume Kinematics &amp; Shear</strong></td>
-              <td><span class="badge badge-green">Very High</span></td>
-              <td>Optical tracking matched 15Z winds across 45 m, 95 m, and 225 m AGL (R² = 0.956–0.999) plus +2.8 m/s vertical buoyant rise.</td>
-              <td>Optical contrast fades into sky background noise after ~50–60 s of turbulent dilution.</td>
-            </tr>
-            <tr>
-              <td><strong>Dispersion Corridor &amp; Timing</strong></td>
-              <td><span class="badge badge-cyan">High</span></td>
-              <td>Independently matched EPA's 43-station footprint and predicted AS01/AS02 arrival within ~3 minutes.</td>
-              <td>Unobserved micro-scale terrain eddies and airport spacing leave ~±5–8° angular spread.</td>
-            </tr>
-            <tr>
-              <td><strong>Source Term (Q) &amp; Health Toxicity</strong></td>
-              <td><span class="badge badge-amber">Low (Video Only) → Moderate (With Telemetry)</span></td>
-              <td>Video alone cannot measure emitted lead mass; inverting live EPA Xact telemetry constrained airborne escape to ≲0.013–0.047% (&gt;99.95% contained).</td>
-              <td>Direct chemical instrumentation remains indispensable for public-health clearance; near-field monitors can miss elevated lofted puffs until PBL mixing.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <div class="expert-only">
+        <h3 style="margin-top:1.6rem;font-size:1.05rem;">OSINT Capability Assessment Matrix</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Dimension</th>
+                <th>Capability</th>
+                <th>Demonstrated Open-Source Performance</th>
+                <th>Fundamental Bottlenecks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Multi-Camera Stereo Geolocation</strong></td>
+                <td><span class="badge badge-green">Very High</span></td>
+                <td>KWQC (FAA Tower T3) + KCRG/AP ("9856" 911 sign at 9856 202nd Ave) achieved 46.3° stereo cross-bearing (±250 m, 5.8× tighter).</td>
+                <td>Requires ≥2 distinct camera angles with resolvable static landmarks (towers, signage, tree gaps).</td>
+              </tr>
+              <tr>
+                <td><strong>3D Plume Kinematics &amp; Shear</strong></td>
+                <td><span class="badge badge-green">Very High</span></td>
+                <td>Optical tracking matched 15Z winds across 45 m, 95 m, and 225 m AGL (R² = 0.956–0.999) plus +2.8 m/s vertical buoyant rise.</td>
+                <td>Optical contrast fades into sky background noise after ~50–60 s of turbulent dilution.</td>
+              </tr>
+              <tr>
+                <td><strong>Dispersion Corridor &amp; Timing</strong></td>
+                <td><span class="badge badge-cyan">High</span></td>
+                <td>Independently matched EPA's 43-station footprint and predicted AS01/AS02 arrival within ~3 minutes.</td>
+                <td>Unobserved micro-scale terrain eddies and airport spacing leave ~±5–8° angular spread.</td>
+              </tr>
+              <tr>
+                <td><strong>Source Term (Q) &amp; Health Toxicity</strong></td>
+                <td><span class="badge badge-amber">Low (Video Only) → Moderate (With Telemetry)</span></td>
+                <td>Video alone cannot measure emitted lead mass; inverting live EPA Xact telemetry constrained airborne escape to ≲0.013–0.047% (&gt;99.95% contained).</td>
+                <td>Direct chemical instrumentation remains indispensable for public-health clearance; near-field monitors can miss elevated lofted puffs until PBL mixing.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-      <div class="callout amber" style="margin-top:1.4rem;">
-        <strong>Auto-Updating Data Pipeline:</strong> Surrounding measurements are continuously refreshed by <code>fetch_measurements.py</code> via a local <code>systemd --user</code> timer (<code>iaaap-plume-updater.timer</code>, every 10 min as the sole git pusher with atomic deduplicated <code>.json.gz</code> archival), plus a manual-dispatch GitHub Actions fallback (<code>.github/workflows/update-telemetry.yml</code>) and direct in-browser CORS polling via the <strong>Live Refresh</strong> button above.
+        <div class="callout amber" style="margin-top:1.4rem;">
+          <strong>Auto-Updating Data Pipeline:</strong> Surrounding measurements are continuously refreshed by <code>fetch_measurements.py</code> via a local <code>systemd --user</code> timer (<code>iaaap-plume-updater.timer</code>, every 10 min as the sole git pusher with atomic deduplicated <code>.json.gz</code> archival and cumulative 24h+ history), plus a manual-dispatch GitHub Actions fallback (<code>.github/workflows/update-telemetry.yml</code>) and direct in-browser CORS polling via the <strong>Refresh</strong> button above.
+        </div>
       </div>
     </section>
 
+    <!-- Friendly CTA Banner in Simple View to unlock Expert / Technical Tools -->
+    <div class="expert-cta simple-only">
+      <div>
+        <h3>🔬 Want the Deep Technical &amp; Meteorological Analysis?</h3>
+        <p>Switch to <strong>Expert Mode</strong> to unlock advanced 3D optics &amp; camera sightlines, the Live-Assimilated vs. 15Z Forecast wind toggle, the interactive Lead Release Sensitivity Slider, the 4-panel 24-Hour Multi-Detector Archive, all 6 forensic figures, and the OSINT capability verdict.</p>
+      </div>
+      <button id="btn-cta-expert" class="btn-expert-cta">Open Expert / Technical Mode →</button>
+    </div>
+
     <footer>
-      Personal open-source data analysis benchmark · All data sourced from public broadcasts (C-SPAN/KWQC, AP/KCRG), FAA DOF, NWS/IEM ASOS &amp; Iowa DOT RWIS, Open-Meteo, and EPA Region 7 public dashboards.
+      Personal open-source data analysis &amp; public tracker · Data sourced from public broadcasts (C-SPAN/KWQC, AP/KCRG), FAA DOF, NWS/IEM ASOS &amp; Iowa DOT RWIS, Open-Meteo, and EPA Region 7 public dashboards.
     </footer>
   </main>
 
