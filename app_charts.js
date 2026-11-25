@@ -1070,7 +1070,11 @@ async function boot() {
   };
   document.getElementById('sel-speed').onchange = (e) => { obs.speedMul = Number(e.target.value); };
   document.getElementById('sel-base').onchange = (e) => obs.setBaseMap(e.target.value);
-  document.getElementById('sel-drape').onchange = (e) => obs.setDrape(e.target.value);
+  const wipeScaleEl = document.getElementById('hud-wipe-scale');
+  document.getElementById('sel-drape').onchange = (e) => {
+    obs.setDrape(e.target.value);
+    if (wipeScaleEl) wipeScaleEl.classList.toggle('show', e.target.value === 'deposition');
+  };
   document.getElementById('sel-color').onchange = (e) => obs.setColorMode(e.target.value);
   document.getElementById('slider-exag').oninput = (e) => {
     const v = Number(e.target.value);

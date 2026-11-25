@@ -110,6 +110,27 @@ def build_textures():
             edge_fade = np.clip(np.outer(np.clip(fy, 0, 1), np.clip(fx, 0, 1)), 0.0, 1.0)
             rgba[..., 3] = alpha * edge_fade
             Image.fromarray((rgba * 255).astype(np.uint8), mode='RGBA').save(out_path)
+        elif mode == 'deposition_physical':
+            # Physically calibrated off-site surface wipe loading (µg/ft²) at EPA Xact airborne bound (0.02777% = 0.85 kg Pb)!
+            # 1 ft^2 = 0.09290304 m^2 => ug/ft^2 = dep_frac_m2 * 0.85 * 1e9 * 0.09290304
+            wipe = sub * (3050.0 * 0.0002777) * 1e9 * 0.09290304
+            lg = np.where(wipe > 0.01, np.log10(np.maximum(wipe, 1e-6)), -99.0)
+            # Scale log10(ug/ft^2) from -2.0 (0.01 ug/ft^2) to +1.0 (10.0 ug/ft^2) so faint <0.05 ug/ft^2 stays very subtle!
+            vmin, vmax = -2.0, 1.0
+            norm = np.clip((lg - vmin) / (vmax - vmin), 0.0, 1.0)
+            rgba = plt.get_cmap('magma')(norm)
+            alpha = np.where(lg <= vmin, 0.0, np.clip((norm ** 1.15) * 0.78, 0.0, 0.78))
+            fx = np.minimum(np.linspace(0, 1, W) / 0.05, np.linspace(1, 0, W) / 0.05)
+            fy = np.minimum(np.linspace(0, 1, H) / 0.05, np.linspace(1, 0, H) / 0.05)
+            edge_fade = np.clip(np.outer(np.clip(fy, 0, 1), np.clip(fx, 0, 1)), 0.0, 1.0)
+            rgba[..., 3] = alpha * edge_fade
+            # Crisp physical threshold contours: 5.0 ug/ft^2 (cyan, EPA floor action) & 0.5 ug/ft^2 (amber, 1/10th floor action)
+            from scipy.ndimage import binary_erosion
+            for thr, col_rgba in [(0.5, (1.0, 0.78, 0.25, 0.90)), (5.0, (0.13, 0.88, 1.0, 0.98))]:
+                mask = wipe >= thr
+                edge = mask & (~binary_erosion(mask, iterations=2))
+                rgba[edge] = col_rgba
+            Image.fromarray((rgba * 255).astype(np.uint8), mode='RGBA').save(out_path)
         elif mode == 'sensitivity':
             # Discrete colored tiers for 5%, 1%, 0.1%, 0.01% Pb 15-min peak >= 0.15 ug/m3!
             TOTAL = float(ds['TOTAL_PB_KG'])
@@ -130,7 +151,7 @@ def build_textures():
                f'{REPO}/assets/textures/drape_exposure.png', mode='log', cmap='inferno', span=4.2, thresh_floor=1e-11)
     dep_tot = d0['dep_coarse_reg'] + d0['dep_pm10_reg'] + d0['dep_pm25_reg']
     save_drape(dep_tot, float(d0['RX_MIN']), float(d0['RX_MAX']), float(d0['RY_MIN']), float(d0['RY_MAX']),
-               f'{REPO}/assets/textures/drape_deposition.png', mode='log', cmap='magma', span=4.0, thresh_floor=1e-13)
+               f'{REPO}/assets/textures/drape_deposition.png', mode='deposition_physical')
     save_drape(ds['peak_15m_Q_reg'], float(ds['RX_MIN']), float(ds['RX_MAX']), float(ds['RY_MIN']), float(ds['RY_MAX']),
                f'{REPO}/assets/textures/drape_sensitivity.png', mode='sensitivity')
     print('Saved all 5 aligned textures to assets/textures/')

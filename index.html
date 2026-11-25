@@ -160,7 +160,8 @@
           <button class="hud-btn expert-preset" data-preset="kwqc" title="Snap to KWQC Cam 1 on 190th Ave looking SSE across FAA Tower T3">Cam 1 (KWQC)</button>
           <button class="hud-btn expert-preset" data-preset="kcrg" title="Snap to KCRG/AP Cam 2 at 9856 202nd Ave looking ESE">Cam 2 (KCRG/AP)</button>
           <button class="hud-btn expert-preset" data-preset="wilson" title="Snap to @nmjameswilson Cam 3 aerial drone (101 m AGL on 80th St, edge of 4 NM TFR) looking due East at T+5s ballistic collapse">Cam 3 (Drone View)</button>
-          <button class="hud-btn expert-preset" data-preset="shear" title="Side cross-section showing vertical wind shear and 1,075m inversion cap">Shear Cross-Section</button>
+          <button class="hud-btn expert-preset" data-preset="shear" title="Side cross-section showing vertical wind shear masts and 1,075m inversion cap">Shear Cross-Section</button>
+          <button class="hud-btn" data-preset="watershed" title="Frame IAAAP on-site containment halo, Long Creek → Skunk River → Mississippi flow direction, and Burlington upstream water intake">Watershed View</button>
           <button class="hud-btn" data-preset="top">Top-Down Map</button>
           <button id="btn-fs" class="hud-btn">⛶ Fullscreen</button>
           <button id="btn-3d-adv-toggle" class="hud-btn simple-only" title="Open advanced 3D layer, wind-assimilation, and map optics panel">⚙ Expert 3D Controls</button>
@@ -172,7 +173,8 @@
             <div class="leg-group-hdr live">● Real Measurements</div>
             <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> Green Towers: Real EPA Lead Monitors</div>
             <div class="leg-item"><span class="leg-dot" style="background:#fbbf24"></span> Gold Glow: Tiny Trace Detected @ Time</div>
-            <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Arrows: Real Local Wind Stations</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Arrows: Real Wind &amp; Downstream Water Flow</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#f59e0b"></span> Gold Ring: On-Site Containment (&gt;99.95% Pb)</div>
             <div class="leg-group-hdr proj">◆ Computer Simulation</div>
             <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Orange/Cyan/Pink: Simulated Smoke Path</div>
             <div class="leg-item"><span class="leg-dot dashed"></span> Ground Glow: Projected Downwind Path</div>
@@ -181,8 +183,9 @@
             <div class="leg-group-hdr live">● Live Observed / Calibrated</div>
             <div class="leg-item"><span class="leg-dot" style="background:#00ff88"></span> EPA Xact Towers (time-synced @ T)</div>
             <div class="leg-item"><span class="leg-dot" style="background:#fbbf24"></span> Xact Trace &gt;0 µg/m³ Pulse @ T</div>
-            <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> Time-Synced ASOS &amp; RWIS Wind Arrows</div>
-            <div class="leg-item"><span class="leg-dot square" style="background:#ff44ff"></span> Video Cam Sightlines &amp; Tower T3</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#38bdf8"></span> ASOS/RWIS Arrows &amp; 10–880 m Shear Masts</div>
+            <div class="leg-item"><span class="leg-dot" style="background:#22d3ee"></span> NHD Flow Direction, USGS &amp; Water Intakes</div>
+            <div class="leg-item"><span class="leg-dot square" style="background:#ff44ff"></span> Video Sightlines, T3 &amp; 0.65 km Pad Halo</div>
             <div class="leg-group-hdr proj">◆ Modeled Projection (Simulated)</div>
             <div class="leg-item"><span class="leg-dot" style="background:#ff9e24"></span> Projected Coarse Dust (20–70 µm)</div>
             <div class="leg-item"><span class="leg-dot" style="background:#0de0ff"></span> Projected PM10 (3–15 µm)</div>
@@ -234,7 +237,7 @@
               <span>Ground Heatmap</span>
               <select id="sel-drape" class="ctrl-select">
                 <option value="exposure" selected>Exposure log₁₀(χ/Q)</option>
-                <option value="deposition">Surface Deposition</option>
+                <option value="deposition">Surface Wipe (µg/ft² @ EPA Bound)</option>
                 <option value="sensitivity">Sensitivity (15m≥0.15)</option>
                 <option value="none">None (Terrain Only)</option>
               </select>
@@ -251,8 +254,8 @@
           <div class="ctrl-group">
             <div class="ctrl-subhdr live">● Live Observed / Time-Synced</div>
             <div class="ctrl-row"><label><input id="chk-sensors" type="checkbox" checked /> Live EPA Xact + 43 Monitors</label></div>
-            <div class="ctrl-row"><label><input id="chk-winds" type="checkbox" checked /> Time-Synced ASOS/RWIS Arrows</label></div>
-            <div class="ctrl-row"><label><input id="chk-hydro" type="checkbox" checked /> Watersheds &amp; USGS Gauges</label></div>
+            <div class="ctrl-row"><label><input id="chk-winds" type="checkbox" checked /> ASOS/RWIS &amp; 3D Shear Masts</label></div>
+            <div class="ctrl-row"><label><input id="chk-hydro" type="checkbox" checked /> Watersheds, Flow &amp; Water Intakes</label></div>
             <div class="ctrl-row"><label><input id="chk-sightlines" type="checkbox" checked /> Video Sightlines &amp; Stereo Zone</label></div>
             <div class="ctrl-row"><label><input id="chk-labels" type="checkbox" checked /> 3D Community Labels</label></div>
           </div>
@@ -271,6 +274,23 @@
             <input id="slider-exag" type="range" min="1" max="25" step="1" value="12" style="width:100%" />
           </div>
         </aside>
+
+        <!-- Physical Surface Wipe Legend Bar (shown when Surface Wipe drape is active) -->
+        <div id="hud-wipe-scale" class="hud-wipe-scale">
+          <div class="wipe-scale-top">
+            <span class="wipe-scale-title">Modeled Surface Wipe (0.028% EPA Bound · 0.85 kg)</span>
+            <span class="wipe-scale-halo">Gold Halo: &gt;99.95% (~3,049 kg) on-site</span>
+          </div>
+          <div class="wipe-bar-wrap">
+            <span>0.01</span>
+            <div class="wipe-bar-grad"></div>
+            <span>10 µg/ft²</span>
+          </div>
+          <div class="wipe-scale-contours">
+            <span><i style="background:#00f5ff"></i> 5.0 µg/ft² EPA floor action (near/on-site)</span>
+            <span><i style="background:#facc15"></i> 0.5 µg/ft² (~5 mi SW)</span>
+          </div>
+        </div>
 
         <!-- Click Inspector Card (Bottom-Right, avoids overlapping EPA HUD) -->
         <div id="hud-inspector" class="hud-inspector">

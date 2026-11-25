@@ -20,8 +20,14 @@ export class Plume3DObservatory {
     this.colorMode = 'regime'; // 'regime' | 'altitude'
     this.plumeMode = 'assimilated'; // 'assimilated' | 'forecast'
     this.pickables = [];
+    this.allLabels = [];
     this.xactVisuals = {};
     this.windVisuals = [];
+    this.shearMasts = [];
+    this.flowPulses = [];
+    this._tmpVec = new THREE.Vector3();
+    this._tmpDir = new THREE.Vector3();
+    this._upVec = new THREE.Vector3(0, 1, 0);
     this.latestXactObsSec = 6600.0;
     this.windObsCutoffSec = 6600.0;
     this.assimShiftInfo = null;
@@ -446,7 +452,7 @@ export class Plume3DObservatory {
     this.scene.add(grid);
   }
 
-  _makeSpriteLabel(text, color = '#ffffff', bg = 'rgba(8,12,18,0.82)', fontSize = 26) {
+  _makeSpriteLabel(text, color = '#ffffff', bg = 'rgba(8,12,18,0.82)', fontSize = 26, opts = {}) {
     const c = document.createElement('canvas');
     const ctx = c.getContext('2d');
     ctx.font = `700 ${fontSize}px Inter, sans-serif`;
@@ -470,12 +476,18 @@ export class Plume3DObservatory {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp = new THREE.Sprite(mat);
     const aspect = c.width / c.height;
-    sp.scale.set(1.22 * aspect, 1.22, 1);
+    const sizeMul = opts.sizeMul ?? 1.0;
+    sp.center.set(0.5, 0.08);
+    sp.scale.set(1.10 * sizeMul * aspect, 1.10 * sizeMul, 1);
     sp.renderOrder = 10;
+    sp.userData.labelAspect = aspect;
+    sp.userData.labelSizeMul = sizeMul;
+    sp.userData.groupTag = opts.groupTag || 'static';
+    this.allLabels.push(sp);
     return sp;
   }
 
-  _makeDynamicSprite(initialText, color = '#6ee7b7', bg = 'rgba(6,22,16,0.92)') {
+  _makeDynamicSprite(initialText, color = '#6ee7b7', bg = 'rgba(6,22,16,0.92)', opts = {}) {
     const c = document.createElement('canvas');
     c.width = 430;
     c.height = 50;
@@ -508,8 +520,14 @@ export class Plume3DObservatory {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp = new THREE.Sprite(mat);
     const aspect = c.width / c.height;
-    sp.scale.set(1.32 * aspect, 1.32, 1);
+    const sizeMul = opts.sizeMul ?? 1.08;
+    sp.center.set(0.5, 0.08);
+    sp.scale.set(1.15 * sizeMul * aspect, 1.15 * sizeMul, 1);
     sp.renderOrder = 14;
+    sp.userData.labelAspect = aspect;
+    sp.userData.labelSizeMul = sizeMul;
+    sp.userData.groupTag = opts.groupTag || 'live';
+    this.allLabels.push(sp);
     return { sprite: sp, draw };
   }
 
@@ -621,6 +639,37 @@ export class Plume3DObservatory {
     }
     this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ellPts), new THREE.LineBasicMaterial({ color: 0xffff00 })));
 
+    // 3b. On-Site Ballistic Containment Halo (r = 0.65 km enclosing both bunkers & soil/gel fallback pad)
+    const haloGeo = new THREE.CircleGeometry(0.65, 48);
+    haloGeo.rotateX(-Math.PI / 2);
+    this.ballisticHaloDisc = new THREE.Mesh(
+      haloGeo,
+      new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
+    );
+    this.ballisticHaloDisc.position.set(0, 0.13, 0);
+    this.ballisticHaloDisc.userData = {
+      type: 'ballistic_halo',
+      title: 'On-Site Ballistic Containment Zone (~0.65 km)',
+      body: `<div style="margin-bottom:5px"><span class="tag-live">● Mass-Balance &amp; Cam 3 Verified</span></div>` +
+            `<b>Mass Retained On-Site:</b> <strong style="color:#fbbf24">&gt;99.95% (~3,049 kg of ~3,050 kg Pb)</strong> stayed inside IAAAP (live EPA Xact <code>AS02</code> bounds airborne downwind escape to ≲0.028% / ≤0.85 kg).<br>` +
+            `<b>Cam 3 Drone Forensics:</b> Dark soil/gel ballistic debris peaked at 111 m (N) / 159 m (S) at T+4.4 s and collapsed back onto the pad within 10–15 s.<br>` +
+            `<b>Soil &amp; Runoff Context:</b> Sits inside <b>Long Creek (HUC12 070801071005)</b>, draining 6.1 km SSE into Skunk River — making Army pad capping/remediation before heavy rain the key long-term environmental safeguard.`,
+    };
+    this.sightlineGroup.add(this.ballisticHaloDisc);
+    this.pickables.push(this.ballisticHaloDisc);
+
+    const haloRingPts = [];
+    for (let i = 0; i <= 64; i++) {
+      const a = (i / 64) * Math.PI * 2;
+      haloRingPts.push(new THREE.Vector3(Math.cos(a) * 0.65, 0, Math.sin(a) * 0.65));
+    }
+    this.ballisticHaloRing = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(haloRingPts),
+      new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.92 })
+    );
+    this.ballisticHaloRing.position.set(0, 0.15, 0);
+    this.sightlineGroup.add(this.ballisticHaloRing);
+
     // 4.0 NM FAA TFR Ring (FDC 6/9186 centered at 40.7950N, -91.2481W)
     const tfrCenter = this.ll2xz(40.79500, -91.24806);
     const tfrPts = [];
@@ -645,8 +694,8 @@ export class Plume3DObservatory {
       const linePts = [new THREE.Vector3(x, 0.30, z), new THREE.Vector3(0, 0.30, 0)];
       this.sightlineGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(linePts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 })));
 
-      const lbl = this._makeSpriteLabel(name, '#' + color.toString(16).padStart(6, '0'), 'rgba(8,12,18,0.88)', 22);
-      lbl.position.set(x, 1.35, z);
+      const lbl = this._makeSpriteLabel(name, '#' + color.toString(16).padStart(6, '0'), 'rgba(8,12,18,0.88)', 22, { sizeMul: 0.90 });
+      lbl.position.set(x, 0.95, z);
       this.sightlineGroup.add(lbl);
     };
 
@@ -697,8 +746,8 @@ export class Plume3DObservatory {
       this.cam3RayN = mkRay(bn.x_km, -bn.y_km, 0x4ade80);
       this.cam3RayS = mkRay(bs.x_km, -bs.y_km, 0xf472b6);
 
-      this.cam3Label = this._makeSpriteLabel('Cam 3: Wilson Drone (331 ft)', '#4ade80', 'rgba(6,22,12,0.9)', 22);
-      this.cam3Label.position.set(x3, 2.2, z3);
+      this.cam3Label = this._makeSpriteLabel('Cam 3: Wilson Drone (331 ft)', '#4ade80', 'rgba(6,22,12,0.9)', 22, { sizeMul: 0.90 });
+      this.cam3Label.position.set(x3, 1.85, z3);
       this.sightlineGroup.add(this.cam3Label);
     }
 
@@ -717,8 +766,8 @@ export class Plume3DObservatory {
     };
     this.sightlineGroup.add(this.towerT3Mesh);
     this.pickables.push(this.towerT3Mesh);
-    const t3Lbl = this._makeSpriteLabel('Tower T3 (235 ft)', '#ff88ff', 'rgba(8,12,18,0.85)', 20);
-    t3Lbl.position.set(t3x, 1.4, t3z);
+    const t3Lbl = this._makeSpriteLabel('Tower T3 (235 ft)', '#ff88ff', 'rgba(8,12,18,0.85)', 20, { sizeMul: 0.85 });
+    t3Lbl.position.set(t3x, 1.25, t3z);
     this.sightlineGroup.add(t3Lbl);
     this.towerT3Label = t3Lbl;
 
@@ -729,9 +778,8 @@ export class Plume3DObservatory {
     for (const t of s.towns) {
       if (!showTowns.has(t.town)) continue;
       const short = t.town.replace(', IA', '').replace(', MO', ' (MO)');
-      const sp = this._makeSpriteLabel(short, '#e2e8f0', 'rgba(10,15,24,0.72)', 20);
-      sp.position.set(t.x_km, 0.9, -t.y_km);
-      sp.scale.multiplyScalar(0.82);
+      const sp = this._makeSpriteLabel(short, '#e2e8f0', 'rgba(10,15,24,0.72)', 20, { sizeMul: 0.78 });
+      sp.position.set(t.x_km, 0.65, -t.y_km);
       this.labelGroup.add(sp);
     }
 
@@ -741,6 +789,9 @@ export class Plume3DObservatory {
 
   _rebuildHydroOverlays() {
     while (this.hydroGroup.children.length) this.hydroGroup.remove(this.hydroGroup.children[0]);
+    this.allLabels = this.allLabels.filter((sp) => sp.userData.groupTag !== 'hydro');
+    this.pickables = this.pickables.filter((m) => m.userData.type !== 'water_intake');
+    this.flowPulses = [];
     const s = this.staticData;
     if (!s || !s.hydrology) return;
     const huc = s.hydrology.blast_huc12;
@@ -769,6 +820,74 @@ export class Plume3DObservatory {
         const pts = poly.map(([x, y]) => new THREE.Vector3(x, this.terrainY(x, -y) + 0.11, -y));
         this.hydroGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
       }
+    }
+
+    // Animated structural water-flow direction chevrons (strictly blue/cyan hydrology markers, NOT lead plumes!)
+    const mkFlowCurve = (xyList, count, color, speed) => {
+      const pts = xyList.map(([x, yN]) => new THREE.Vector3(x, this.terrainY(x, -yN) + 0.20, -yN));
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const coneGeo = new THREE.ConeGeometry(0.18, 0.60, 8);
+      const coneMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.90 });
+      for (let i = 0; i < count; i++) {
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        this.hydroGroup.add(cone);
+        this.flowPulses.push({ mesh: cone, curve, phase: i / count, speed });
+      }
+    };
+    // Path 1: IAAAP Blast Pad -> Long Creek SSE -> Skunk River ESE -> Mississippi Confluence (exact USGS NHD coords)
+    mkFlowCurve([
+      [0.0, 0.0], [-0.13, -2.43], [0.24, -2.93], [1.64, -4.04], [1.84, -5.19], [2.16, -6.56],
+      [2.66, -7.87], [4.49, -9.16], [7.14, -10.37], [8.43, -9.91], [11.32, -12.30], [12.91, -12.41],
+    ], 10, 0x22d3ee, 0.065);
+    // Path 2: Mississippi River flowing SOUTH past Burlington UPSTREAM intake -> Skunk Confluence -> Fort Madison -> Keokuk
+    mkFlowCurve([
+      [17.91, 5.0], [14.54, 1.03], [13.5, -3.8], [12.76, -8.70], [12.91, -12.41], [12.02, -15.41],
+      [4.62, -19.02], [-2.33, -20.26], [-9.29, -24.78], [-11.66, -26.75], [-10.02, -30.95],
+      [-8.38, -34.23], [-9.30, -38.92], [-8.56, -44.15], [-10.40, -47.26],
+    ], 14, 0x60a5fa, 0.042);
+
+    // 3 Clickable Municipal Drinking-Water Intake Beacons (visually showing upstream vs RO vs mainstem dilution!)
+    const intakes = [
+      {
+        lat: 40.8165, lon: -91.0970, color: 0x10b981, label: 'Burlington Water (UPSTREAM ✓)', fg: '#6ee7b7', bg: 'rgba(5,28,20,0.92)',
+        title: 'Burlington Municipal Waterworks (UPSTREAM)',
+        body: `<div style="margin-bottom:5px"><span class="tag-live">● Hydrologically Upstream · Isolated</span></div>` +
+              `<b>Source:</b> ~80% Mississippi River intake (<b>~12 km UPSTREAM</b> of the Skunk River confluence) + ~20% Pleistocene sand/gravel wells.<br>` +
+              `<b>Pathway Status:</b> Skunk River water flows <b>south</b> away from Burlington; airborne winds blew <b>SW</b> away from town.<br>` +
+              `<b>Drinking-Water Risk:</b> <strong style="color:#34d399">Hydrologically isolated (No blast runoff path)</strong>.`,
+      },
+      {
+        lat: 40.6250, lon: -91.3200, color: 0x38bdf8, label: 'Ft. Madison Water (RO Wells ✓)', fg: '#7dd3fc', bg: 'rgba(6,22,36,0.92)',
+        title: 'Fort Madison Municipal Water (Alluvial Wells + RO)',
+        body: `<div style="margin-bottom:5px"><span class="tag-live">● Alluvial Aquifer + Reverse Osmosis</span></div>` +
+              `<b>Source:</b> Municipal alluvial wells treated with <b>Reverse Osmosis (RO)</b> membranes (no direct raw Mississippi River intake).<br>` +
+              `<b>Treatment Barrier:</b> Natural sand/gravel riverbank filtration + RO rejects &gt;98–99% of dissolved metals and 100% of particulate lead.<br>` +
+              `<b>Drinking-Water Risk:</b> <strong style="color:#38bdf8">Negligible (Multi-barrier well + RO protection)</strong>.`,
+      },
+      {
+        lat: 40.3980, lon: -91.3750, color: 0x60a5fa, label: 'Keokuk Water (~50k cfs Dilution)', fg: '#93c5fd', bg: 'rgba(8,18,36,0.90)',
+        title: 'Keokuk Municipal Waterworks (Downstream Mississippi)',
+        body: `<div style="margin-bottom:5px"><span class="tag-live">● Downstream Mainstem · Massive Dilution</span></div>` +
+              `<b>Source:</b> Mississippi River mainstem ~50 km downstream of the Skunk River confluence.<br>` +
+              `<b>Dilution + Treatment:</b> ~49,000–50,000 cfs Nov Mississippi flow (~15× Skunk River, ~1,000× Long Creek stormflow) plus municipal coagulation/filtration (&gt;95% particulate Pb removal).<br>` +
+              `<b>Screening Level:</b> Even a hypothetical 0.1% pad storm-wash pulse dilutes to <b>&lt;0.1 µg/L</b> (vs. 15 µg/L EPA action level).`,
+      },
+    ];
+    for (const w of intakes) {
+      const { x, z } = this.ll2xz(w.lat, w.lon);
+      const baseY = this.terrainY(x, z);
+      const pin = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.14, 0.72, 12),
+        new THREE.MeshStandardMaterial({ color: w.color, emissive: w.color, emissiveIntensity: 0.65 })
+      );
+      pin.position.set(x, baseY + 0.42, z);
+      pin.userData = { type: 'water_intake', title: w.title, body: w.body };
+      this.hydroGroup.add(pin);
+      this.pickables.push(pin);
+
+      const lbl = this._makeSpriteLabel(w.label, w.fg, w.bg, 19, { sizeMul: 0.80, groupTag: 'hydro' });
+      lbl.position.set(x, baseY + 1.05, z);
+      this.hydroGroup.add(lbl);
     }
   }
 
@@ -860,10 +979,12 @@ export class Plume3DObservatory {
     while (this.sensorGroup.children.length) this.sensorGroup.remove(this.sensorGroup.children[0]);
     while (this.windGroup.children.length) this.windGroup.remove(this.windGroup.children[0]);
     while (this.usgsGroup.children.length) this.usgsGroup.remove(this.usgsGroup.children[0]);
-    // Keep only static pickables
-    this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower'].includes(m.userData.type));
+    // Keep only static/hydro pickables & labels (prevent memory leaks on refresh / exag change)
+    this.pickables = this.pickables.filter((m) => ['origin', 'camera', 'tower', 'ballistic_halo', 'water_intake'].includes(m.userData.type));
+    this.allLabels = this.allLabels.filter((sp) => sp.userData.groupTag !== 'live');
     this.xactVisuals = {};
     this.windVisuals = [];
+    this.shearMasts = [];
 
     // Rebuild live-assimilated 3D particle trajectories from latest ASOS + RWIS wind assimilation!
     const wa = liveData.wind_assimilation;
@@ -934,8 +1055,8 @@ export class Plume3DObservatory {
         this.sensorGroup.add(pillar);
         this.pickables.push(pillar);
 
-        const dynLabel = this._makeDynamicSprite(`● ${key}: ${(xact.latest_value ?? 0).toFixed(4)} µg/m³`);
-        dynLabel.sprite.position.set(x, baseY + 2.30, z);
+        const dynLabel = this._makeDynamicSprite(`● ${key}: ${(xact.latest_value ?? 0).toFixed(4)} µg/m³`, '#6ee7b7', 'rgba(6,22,16,0.92)', { sizeMul: 1.05, groupTag: 'live' });
+        dynLabel.sprite.position.set(x, baseY + 1.95, z);
         this.sensorGroup.add(dynLabel.sprite);
 
         this.xactVisuals[key] = { sid: key, pillar, ring, dynLabel, baseY, xact, x, z, lastKey: null, status: 'zero' };
@@ -1040,15 +1161,18 @@ export class Plume3DObservatory {
       this.pickables.push(beacon);
       if (isDirect || g.site_id === '05490500' || g.site_id === '05474500') {
         const shortFlow = g.discharge_cfs != null ? ` (${Math.round(g.discharge_cfs).toLocaleString()} cfs)` : (g.turbidity_fnu != null ? ` (${g.turbidity_fnu} FNU)` : '');
-        const lbl = this._makeSpriteLabel(`USGS ${g.name.split(' at ')[0]}${shortFlow}`, '#67e8f9', 'rgba(4,20,30,0.88)', 19);
-        lbl.position.set(x, baseY + 1.55, z);
-        lbl.scale.multiplyScalar(0.84);
+        const lbl = this._makeSpriteLabel(`USGS ${g.name.split(' at ')[0]}${shortFlow}`, '#67e8f9', 'rgba(4,20,30,0.88)', 19, { sizeMul: 0.80, groupTag: 'live' });
+        lbl.position.set(x, baseY + 1.05, z);
         this.usgsGroup.add(lbl);
       }
     }
 
+    // 4. 3D Vertical Wind-Shear Masts (10m -> 880m AGL) at IAAAP & Kahoka!
+    this._buildShearMasts(wa);
+
     this._updateXactVisualsAtTime(this.simSec);
     this._updateWindVisualsAtTime(this.simSec);
+    this._updateShearMastsAtTime(this.simSec);
   }
 
   _lookupWindAtSec(vis, sec) {
@@ -1097,6 +1221,118 @@ export class Plume3DObservatory {
       const col = w.status === 'future' ? 0x64748b : vis.baseColor;
       vis.arrow.setColor(col);
       vis.orb.material.color.setHex(col);
+    }
+  }
+
+  _buildShearMasts(wa) {
+    if (!wa || !wa.z_grid_m || !wa.times_min || !wa.u_assim) return;
+    const zGrid = wa.z_grid_m;
+    const tierSpecs = [
+      { idx: 0, zM: 10,  color: 0xffdd44, hex: '#ffdd44', note: 'Surface' },
+      { idx: 2, zM: 120, color: 0x34d399, hex: '#34d399', note: 'White cap' },
+      { idx: 4, zM: 250, color: 0x22d3ee, hex: '#22d3ee', note: 'Lower PBL' },
+      { idx: 5, zM: 450, color: 0x38bdf8, hex: '#38bdf8', note: 'Mid PBL' },
+      { idx: 7, zM: 880, color: 0xa855f7, hex: '#a855f7', note: 'Upper shear' },
+    ].filter((t) => t.idx < zGrid.length);
+
+    const nodes = wa.spatial_nodes || [];
+    const iaaapNode = nodes.find((n) => n.id === 'IAAAP') || { id: 'IAAAP', x_km: 0, y_km: 0, u_assim: wa.u_assim, v_assim: wa.v_assim };
+    const kahokaNode = nodes.find((n) => n.id === 'Kahoka');
+    const mastDefs = [
+      { id: 'IAAAP', label: 'IAAAP Shear Mast (10–880m)', xKm: 1.15, zKm: 0.0, node: iaaapNode, isPrimary: true },
+      ...(kahokaNode ? [{ id: 'Kahoka', label: 'Kahoka Shear (10–880m)', xKm: kahokaNode.x_km, zKm: -kahokaNode.y_km, node: kahokaNode, isPrimary: false }] : []),
+    ];
+
+    for (const def of mastDefs) {
+      const baseY = this.terrainY(def.xKm, def.zKm);
+      const topZKm = (tierSpecs[tierSpecs.length - 1]?.zM || 880) / 1000.0;
+      const poleH = Math.max(0.6, topZKm * this.vertExag);
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.085, poleH, 10),
+        new THREE.MeshStandardMaterial({ color: 0x94a3b8, emissive: 0x38bdf8, emissiveIntensity: 0.35, transparent: true, opacity: 0.78 })
+      );
+      pole.position.set(def.xKm, baseY + poleH / 2, def.zKm);
+
+      const baseRingGeo = new THREE.RingGeometry(0.28, 0.48, 24);
+      baseRingGeo.rotateX(-Math.PI / 2);
+      const baseRing = new THREE.Mesh(
+        baseRingGeo,
+        new THREE.MeshBasicMaterial({ color: 0xa855f7, side: THREE.DoubleSide, transparent: true, opacity: 0.65, depthWrite: false })
+      );
+      baseRing.position.set(def.xKm, baseY + 0.14, def.zKm);
+      this.windGroup.add(baseRing);
+
+      const arrows = [];
+      for (const tier of tierSpecs) {
+        const yAlt = baseY + (zGrid[tier.idx] / 1000.0) * this.vertExag;
+        const arr = new THREE.ArrowHelper(new THREE.Vector3(-0.5, 0, 0.866), new THREE.Vector3(def.xKm, yAlt, def.zKm), 2.5, tier.color, 0.68, 0.42);
+        this.windGroup.add(arr);
+        const bead = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 10), new THREE.MeshBasicMaterial({ color: tier.color }));
+        bead.position.set(def.xKm, yAlt, def.zKm);
+        this.windGroup.add(bead);
+        arrows.push({ tier, arrow: arr, zM: zGrid[tier.idx] });
+      }
+
+      const mastObj = { id: def.id, node: def.node, wa, arrows, isPrimary: def.isPrimary };
+      pole.userData = {
+        type: 'shear_mast',
+        title: `3D Vertical Wind-Shear Profile — ${def.id}`,
+        getBody: (curSec) => {
+          const useFcst = this.plumeMode === 'forecast' && wa.u_fcst && wa.v_fcst;
+          const rows = [...arrows].reverse().map(({ tier, zM }) => {
+            const { u, v } = this._sampleMastWind(mastObj, tier.idx, curSec, useFcst);
+            const spd = Math.hypot(u, v);
+            const toDeg = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360;
+            const fromDeg = (toDeg + 180) % 360;
+            return `<div style="display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,monospace;font-size:0.75rem">` +
+              `<span style="color:${tier.hex};font-weight:700">${Math.round(zM)} m (${tier.note})</span>` +
+              `<span>${Math.round(fromDeg)}°→${Math.round(toDeg)}° · ${spd.toFixed(1)} m/s (${(spd * 2.237).toFixed(0)} mph)</span></div>`;
+          }).join('');
+          const modeTag = useFcst
+            ? '<span class="tag-proj">◆ 15Z Forecast Profile</span>'
+            : '<span class="tag-hybrid">● Live-Assimilated HRRR + ASOS/RWIS</span>';
+          return `<div style="margin-bottom:6px">${modeTag}</div>` +
+            `<div style="margin-bottom:5px;color:#cbd5e1;font-size:0.74rem">Vertical wind speed &amp; directional shear from ground to near the 1,075 m inversion cap at 3D clock:</div>` +
+            rows;
+        },
+      };
+      this.windGroup.add(pole);
+      this.pickables.push(pole);
+
+      const lbl = this._makeSpriteLabel(def.label, '#d8b4fe', 'rgba(18,10,32,0.88)', 19, { sizeMul: 0.78, groupTag: 'live' });
+      lbl.position.set(def.xKm, baseY + poleH + 0.45, def.zKm);
+      this.windGroup.add(lbl);
+
+      this.shearMasts.push(mastObj);
+    }
+  }
+
+  _sampleMastWind(mast, zIdx, sec, useFcst) {
+    const wa = mast.wa;
+    const tMinArr = wa.times_min;
+    const nT = tMinArr.length;
+    const tMin = THREE.MathUtils.clamp(sec / 60.0, tMinArr[0], tMinArr[nT - 1]);
+    const idxLo = Math.min(Math.floor(tMin / 10.0), nT - 2);
+    const tf = THREE.MathUtils.clamp((tMin - tMinArr[idxLo]) / Math.max(1e-3, tMinArr[idxLo + 1] - tMinArr[idxLo]), 0, 1);
+    const uArr = (useFcst && wa.u_fcst) ? wa.u_fcst : (mast.node.u_assim || wa.u_assim);
+    const vArr = (useFcst && wa.v_fcst) ? wa.v_fcst : (mast.node.v_assim || wa.v_assim);
+    const u = uArr[idxLo][zIdx] * (1 - tf) + uArr[idxLo + 1][zIdx] * tf;
+    const v = vArr[idxLo][zIdx] * (1 - tf) + vArr[idxLo + 1][zIdx] * tf;
+    return { u, v };
+  }
+
+  _updateShearMastsAtTime(sec) {
+    if (!this.shearMasts.length) return;
+    const useFcst = this.plumeMode === 'forecast';
+    for (const mast of this.shearMasts) {
+      for (const { tier, arrow } of mast.arrows) {
+        const { u, v } = this._sampleMastWind(mast, tier.idx, sec, useFcst);
+        const spd = Math.hypot(u, v);
+        if (spd < 0.05) continue;
+        this._tmpDir.set(u, 0, -v).normalize();
+        arrow.setDirection(this._tmpDir);
+        arrow.setLength(Math.max(1.3, spd * 0.72), 0.65, 0.40);
+      }
     }
   }
 
@@ -1183,12 +1419,17 @@ export class Plume3DObservatory {
       geo.computeVertexNormals();
     }
     // Scale Tower T3 (71.6 m = 0.0716 km) & Cam 3 Wilson Drone altitude (100.9 m = 0.1009 km)
+    if (this.ballisticHaloDisc && this.ballisticHaloRing) {
+      const y0 = this.terrainY(0, 0);
+      this.ballisticHaloDisc.position.y = y0 + 0.13;
+      this.ballisticHaloRing.position.y = y0 + 0.15;
+    }
     if (this.towerT3Mesh) {
       const hT3 = 0.0716 * exag;
       const baseT3 = this.terrainY(this.staticData.tower_t3.x_km, -this.staticData.tower_t3.y_km);
       this.towerT3Mesh.scale.set(1, hT3, 1);
       this.towerT3Mesh.position.y = baseT3 + hT3 / 2;
-      this.towerT3Label.position.y = baseT3 + hT3 + 0.65;
+      this.towerT3Label.position.y = baseT3 + hT3 + 0.40;
     }
     if (this.cam3Mesh && this.staticData.cam3_wilson) {
       const c3 = this.staticData.cam3_wilson;
@@ -1198,7 +1439,7 @@ export class Plume3DObservatory {
       this.cam3Mesh.position.y = yTop;
       this.cam3Stem.scale.set(1, Math.max(0.05, hC3), 1);
       this.cam3Stem.position.y = baseC3 + hC3 / 2;
-      this.cam3Label.position.y = yTop + 0.85;
+      this.cam3Label.position.y = yTop + 0.55;
       for (const ray of [this.cam3RayN, this.cam3RayS]) {
         if (!ray) continue;
         const pos = ray.geometry.attributes.position;
@@ -1210,7 +1451,7 @@ export class Plume3DObservatory {
     if (this.invMesh) {
       const yInv = 1.075 * exag;
       this.invMesh.position.y = yInv;
-      this.invLbl.position.y = yInv + 0.6;
+      this.invLbl.position.y = yInv + 0.35;
     }
     this._rebuildHydroOverlays();
     if (this.liveData) this.updateLiveTelemetry(this.liveData);
@@ -1273,9 +1514,10 @@ export class Plume3DObservatory {
       this.pblLbl.position.y = (pblM / 1000.0) * exag + 0.45;
     }
 
-    // Time-sync 3D live EPA Xact towers & ASOS/RWIS wind arrows with the playback clock!
+    // Time-sync 3D live EPA Xact towers, ASOS/RWIS arrows & vertical wind-shear masts with the playback clock!
     const xactSnap = this._updateXactVisualsAtTime(clamped);
     this._updateWindVisualsAtTime(clamped);
+    this._updateShearMastsAtTime(clamped);
 
     if (this.cb.onTick) {
       this.cb.onTick(clamped, pblM, Math.round((airborneCount / N) * 100), xactSnap, this.latestXactObsSec, this.windObsCutoffSec, this.plumeMode);
@@ -1337,9 +1579,13 @@ export class Plume3DObservatory {
       this.cameraTargetGoal = new THREE.Vector3(0, 0.085 * this.vertExag, 0);
       this.simSec = 5; this.updateParticlesAtTime(this.simSec);
     } else if (preset === 'shear') {
-      // Dramatic side cross-section showing vertical wind shear & inversion cap!
+      // Dramatic side cross-section showing vertical wind shear masts & 1,075m inversion cap!
       this.cameraPosGoal = new THREE.Vector3(-8, 6.5, 44);
       this.cameraTargetGoal = new THREE.Vector3(-22, 4.5, 12);
+    } else if (preset === 'watershed') {
+      // Frame the IAAAP on-site containment zone -> Long Creek -> Skunk River @ Augusta -> Mississippi + Burlington Upstream intake!
+      this.cameraPosGoal = new THREE.Vector3(17.5, 13.5, 24.5);
+      this.cameraTargetGoal = new THREE.Vector3(3.5, 0.5, 5.5);
     } else if (preset === 'top') {
       this.cameraPosGoal = new THREE.Vector3(-56, 175, 42);
       this.cameraTargetGoal = new THREE.Vector3(-56, 0, 41.5);
@@ -1367,6 +1613,16 @@ export class Plume3DObservatory {
       }
     }
 
+    // Animate structural downstream water-flow direction chevrons (Long Creek -> Skunk River -> Mississippi)
+    if (this.hydroGroup.visible && this.flowPulses.length) {
+      for (const fp of this.flowPulses) {
+        const u = (fp.phase + nowSec * fp.speed) % 1.0;
+        fp.curve.getPointAt(u, fp.mesh.position);
+        fp.curve.getTangentAt(u, this._tmpDir).normalize();
+        fp.mesh.quaternion.setFromUnitVectors(this._upVec, this._tmpDir);
+      }
+    }
+
     if (this.cameraPosGoal && this.cameraTargetGoal) {
       this.camera.position.lerp(this.cameraPosGoal, 0.08);
       this.controls.target.lerp(this.cameraTargetGoal, 0.08);
@@ -1377,6 +1633,17 @@ export class Plume3DObservatory {
     }
 
     this.controls.update();
+
+    // Distance-adaptive zoom scaling for all 3D title/name popups (compact on close zoom, readable from afar)
+    for (let i = 0; i < this.allLabels.length; i++) {
+      const sp = this.allLabels[i];
+      if (!sp.visible || (sp.parent && !sp.parent.visible)) continue;
+      sp.getWorldPosition(this._tmpVec);
+      const dist = this.camera.position.distanceTo(this._tmpVec);
+      const h = THREE.MathUtils.clamp(dist * 0.022, 0.08, 2.15) * (sp.userData.labelSizeMul || 1.0);
+      sp.scale.set(h * sp.userData.labelAspect, h, 1);
+    }
+
     this.renderer.render(this.scene, this.camera);
   }
 }

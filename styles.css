@@ -377,6 +377,63 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .leg-dot.square { border-radius: 2px; }
 .leg-dot.dashed { border: 1.5px dashed #fbbf24; background: transparent !important; }
 
+/* Physical Surface Wipe Scale Legend Pill (3D HUD) */
+.hud-wipe-scale {
+  position: absolute;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 19;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 310px;
+  max-width: min(430px, calc(100% - 24px));
+  background: rgba(10, 15, 24, 0.92);
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  border-radius: 9px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.68rem;
+  color: #dbeafe;
+  pointer-events: none;
+  backdrop-filter: blur(7px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.hud-wipe-scale.show { display: flex; }
+.wipe-scale-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.wipe-scale-title { font-weight: 800; color: #f8fafc; }
+.wipe-scale-halo { color: #fcd34d; font-weight: 700; }
+.wipe-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.66rem;
+  color: #cbd5e1;
+}
+.wipe-bar-grad {
+  flex: 1;
+  height: 7px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #1b0c41 0%, #51127c 25%, #b73779 50%, #fb8861 75%, #fcfdbf 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+.wipe-scale-contours {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  color: #cbd5e1;
+}
+.wipe-scale-contours span { display: inline-flex; align-items: center; gap: 5px; }
+.wipe-scale-contours i { width: 12px; height: 2.5px; display: inline-block; border-radius: 2px; }
+
 /* Time-Synced Live EPA Telemetry Overlay inside 3D Canvas */
 .hud-epa-live {
   position: absolute;
